@@ -48,13 +48,13 @@ CONTAINS
     REAL(KIND=PRE) :: r, z, r1, drdx1, drdx2, dzdx3
     REAL(KIND=PRE), dimension(2, 2) :: integrals
 
-    r = wavenumber * NORM2(X0I(1:2) - X0J(1:2))
+    r = wavenumber * NORM2(X0J(1:2) - X0I(1:2))
     z = wavenumber * (X0I(3) + X0J(3))
     r1 = hypot(r, z)
 
     IF (ABS(r) > 16*EPSILON(r)) THEN
-      drdx1 = wavenumber**2 * (X0I(1) - X0J(1))/r
-      drdx2 = wavenumber**2 * (X0I(2) - X0J(2))/r
+      drdx1 = wavenumber**2 * (X0J(1) - X0I(1))/r
+      drdx2 = wavenumber**2 * (X0J(2) - X0I(2))/r
     ELSE
       ! Limit when r->0 is not well defined...
       drdx1 = ZERO
@@ -88,13 +88,9 @@ CONTAINS
     !================================================
 
     FS    = CMPLX(integrals(1, 2), integrals(2, 2), KIND=PRE)
-    VS(1) = -drdx1 * CMPLX(integrals(1, 1), integrals(2, 1), KIND=PRE)
-    VS(2) = -drdx2 * CMPLX(integrals(1, 1), integrals(2, 1), KIND=PRE)
-#ifdef XIE_CORRECTION
-    VS(3) = dzdx3 * CMPLX(integrals(1, 2) + ONE/r1, integrals(2, 2), KIND=PRE)
-#else
+    VS(1) = drdx1 * CMPLX(integrals(1, 1), integrals(2, 1), KIND=PRE)
+    VS(2) = drdx2 * CMPLX(integrals(1, 1), integrals(2, 1), KIND=PRE)
     VS(3) = dzdx3 * CMPLX(integrals(1, 2), integrals(2, 2), KIND=PRE)
-#endif
 
     RETURN
   END SUBROUTINE COLLECT_DELHOMMEAU_INTEGRALS
@@ -104,6 +100,7 @@ CONTAINS
   SUBROUTINE WAVE_PART_INFINITE_DEPTH &
       (X0I, X0J, wavenumber,          &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+      integral_reflected_rankine, integral_grad_reflected_rankine, &
       SP, VSP_SYM, VSP_ANTISYM)
     ! Compute the wave part of the Green function in the infinite depth case.
     ! This is mostly the integral computed by the subroutine above.
@@ -112,6 +109,9 @@ CONTAINS
     REAL(KIND=PRE),                           INTENT(IN)  :: wavenumber
     REAL(KIND=PRE), DIMENSION(3),             INTENT(IN)  :: X0I   ! Coordinates of the source point
     REAL(KIND=PRE), DIMENSION(3),             INTENT(IN)  :: X0J   ! Coordinates of the center of the integration panel
+
+    REAL(KIND=PRE), INTENT(IN) :: integral_reflected_rankine
+    REAL(KIND=PRE), DIMENSION(3), INTENT(IN) :: integral_grad_reflected_rankine
 
     ! Tabulated data
     REAL(KIND=PRE), DIMENSION(:),             INTENT(IN) :: tabulated_r_range
@@ -131,15 +131,20 @@ CONTAINS
       X0I, X0J, wavenumber,                                      &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
       SP, VSP(:))
+
     SP  = 2*wavenumber*SP
     VSP = 2*wavenumber*VSP
 
-#ifndef XIE_CORRECTION
+#ifdef XIE_CORRECTION
+    VSP(3) = VSP(3) + 2*wavenumber*integral_reflected_rankine
+#else
     ! In the original Delhommeau method
-    XJ_REFLECTION(1:2) = X0J(1:2)
-    XJ_REFLECTION(3) = - X0J(3)
+    ! XJ_REFLECTION(1:2) = X0J(1:2)
+    ! XJ_REFLECTION(3) = - X0J(3)
     ! Only one singularity is missing in the derivative
-    VSP = VSP - 2*(X0I - XJ_REFLECTION)/(NORM2(X0I-XJ_REFLECTION)**3)
+    ! VSP = VSP - 2*(X0I - XJ_REFLECTION)/(NORM2(X0I-XJ_REFLECTION)**3)
+    ! print*, integral_grad_reflected_rankine, (X0I - XJ_REFLECTION)/(NORM2(X0I-XJ_REFLECTION)**3)
+    VSP = VSP + 2*integral_grad_reflected_rankine
 #endif
 
     VSP_SYM(1:2)     = CMPLX(ZERO, ZERO, KIND=PRE)

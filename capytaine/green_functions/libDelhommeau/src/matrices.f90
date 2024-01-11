@@ -73,7 +73,8 @@ CONTAINS
     COMPLEX(KIND=PRE), DIMENSION(3) :: VSP2_SYM, VSP2_ANTISYM
     LOGICAL :: use_symmetry_of_wave_part
 
-    use_symmetry_of_wave_part = ((SAME_BODY) .AND. (nb_quad_points == 1))
+    ! use_symmetry_of_wave_part = ((SAME_BODY) .AND. (nb_quad_points == 1))
+    use_symmetry_of_wave_part = .false.
 
 
 #ifndef XIE_CORRECTION
@@ -98,11 +99,11 @@ CONTAINS
       S(:, J) = CMPLX(0.0, 0.0, KIND=PRE)
       K(:, J, :) = CMPLX(0.0, 0.0, KIND=PRE)
 
+      DO I = 1, nb_faces_1
       !!!!!!!!!!!!!!!!!!
       !  Rankine part  !
       !!!!!!!!!!!!!!!!!!
-      IF (coeffs(1) .NE. ZERO) THEN
-        DO I = 1, nb_faces_1
+        IF (coeffs(1) .NE. ZERO) THEN
 
           CALL COMPUTE_INTEGRAL_OF_RANKINE_SOURCE( &
             centers_1(I, :),                       &
@@ -131,16 +132,16 @@ CONTAINS
             K(I, J, :) = K(I, J, :) - coeffs(1) * VSP1(:)
           endif
 
-        END DO
-      END IF
+        END IF
 
 
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!
       !  Reflected Rankine part  !
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      IF (coeffs(2) .NE. ZERO) THEN
-        DO I = 1, nb_faces_1
+        IF ((coeffs(2) .NE. ZERO) .OR. (coeffs(3) .NE. ZERO)) THEN
+        ! The reflected Rankine term may also be used in the wave term,
+        ! hence the computation should be done when coeffs(3) != 0.
 
           IF (is_infinity(depth)) THEN
             ! Reflection through free surface
@@ -181,15 +182,14 @@ CONTAINS
           else
             K(I, J, :) = K(I, J, :) - coeffs(2) * reflected_VSP1(:)
           endif
-        END DO
-      END IF
+        END IF
+
 
       !!!!!!!!!!!!!!!
       !  Wave part  !
       !!!!!!!!!!!!!!!
 
-      IF ((coeffs(3) .NE. ZERO) .AND. (.NOT. use_symmetry_of_wave_part)) THEN
-        DO I = 1, nb_faces_1
+        IF ((coeffs(3) .NE. ZERO) .AND. (.NOT. use_symmetry_of_wave_part)) THEN
           DO Q = 1, nb_quad_points
             IF (is_infinity(depth)) THEN
               CALL WAVE_PART_INFINITE_DEPTH &
@@ -197,6 +197,7 @@ CONTAINS
                 quad_points(J, Q, :),       & ! centers_2(J, :),
                 wavenumber,                 &
                 tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+                SP1/areas_2(J), reflected_VSP1/areas_2(J), &
                 SP2, VSP2_SYM, VSP2_ANTISYM &
                 )
             ELSE
@@ -231,8 +232,8 @@ CONTAINS
             endif
 
           END DO
-        END DO
-      END IF
+        END IF
+      END DO
 
       IF (SAME_BODY) THEN
         if (size(K, 3) == 1) then
@@ -264,6 +265,7 @@ CONTAINS
               quad_points(J, 1, :),       & ! centers_2(J, :),
               wavenumber,                 &
               tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+              SP1, reflected_VSP1, &
               SP2, VSP2_SYM, VSP2_ANTISYM &
               )
           ELSE

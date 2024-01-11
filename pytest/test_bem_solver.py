@@ -141,3 +141,14 @@ def test_direct_solver(sphere):
     direct_result = solver.solve(problem, method='direct')
     indirect_result = solver.solve(problem, method='indirect')
     assert direct_result.forces["Surge"] == pytest.approx(indirect_result.forces["Surge"], rel=1e-1)
+
+
+def test_(sphere):
+    problem = cpt.DiffractionProblem(body=sphere, omega=1.0, water_depth=5.0)
+    solver_1 = cpt.BEMSolver(green_function=cpt.Delhommeau())
+    result_1 = solver_1.solve(problem)
+    solver_2 = cpt.BEMSolver(green_function=cpt.XieDelhommeau())
+    result_2 = solver_2.solve(problem)
+    print(result_1.forces["Surge"])
+    print(result_2.forces["Surge"])
+    assert result_1.forces["Surge"] == pytest.approx(result_2.forces["Surge"], rel=1e-1)
