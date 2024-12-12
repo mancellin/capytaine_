@@ -47,6 +47,11 @@ requires = [
 test-requires = ["pytest"]
 test-command = "pytest {project}/pytest/"
 
+[tool.pytest.ini_options]
+xfail_strict = true
+addopts = ["-ra", "--showlocals", "--failed-first"]
+testpaths = ["pytest"]
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "NPY"]
 ignore = ["E501"]
