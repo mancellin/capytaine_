@@ -433,7 +433,7 @@ CONTAINS
     real(kind=pre), dimension(3)    :: x_sym, face_center_sym
     real(kind=pre), dimension(size(face_quadrature_points, 1), size(face_quadrature_points, 2)) :: face_quadrature_points_sym
     real(kind=pre)                  :: lambda_k, a_k
-    real(kind=pre)                  :: kh, tanhkh, a
+    real(kind=pre)                  :: AMH, AKH, A
     real(kind=pre)                  :: int_G_term_Rankine
     real(kind=pre), dimension(3)    :: int_nablaG_term_Rankine
     complex(kind=pre)               :: int_G_term
@@ -444,9 +444,9 @@ CONTAINS
     int_nablaG = czero
 
     ! Some coefficient
-    kh     = wavenumber*depth
-    tanhkh = TANH(kh)
-    A      = 1/4 * kh*(1+tanhkh)**2/(kh - kh*tanhkh**2 + tanhkh)
+    AMH  = wavenumber*depth
+    AKH  = AMH*TANH(AMH)
+    A    = (AMH+AKH)**2/(4*AMH*(AMH**2-AKH**2+AKH))
 
     if (.not. is_infinity(wavenumber)) then
       !========================================

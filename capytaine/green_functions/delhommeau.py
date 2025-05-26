@@ -126,6 +126,12 @@ class Delhommeau(AbstractGreenFunction):
         self.tabulation_grid_shape_index = fortran_enum[tabulation_grid_shape]
 
         self.gf_singularities = gf_singularities
+        self.gf_singularities_fortran_enum = {
+                'high_freq': self.fortran_core.constants.high_freq,
+                'low_freq': self.fortran_core.constants.low_freq,
+                'low_freq_with_rankine_part': self.fortran_core.constants.low_freq_with_rankine_part,
+                              }
+        self.gf_singularities_index = self.gf_singularities_fortran_enum[gf_singularities]
 
         self.finite_depth_method = finite_depth_method
         fortran_enum = {
@@ -338,18 +344,18 @@ class Delhommeau(AbstractGreenFunction):
 
         wavenumber = float(wavenumber)
 
-        if wavenumber == 0.0:
+        if water_depth < np.inf and self.finite_depth_method == "legacy":
+            # Mimic former behavior
+            gf_singularities = "low_freq"
+            if wavenumber == np.inf:
+                raise NotImplementedError()
+
+        elif wavenumber == 0.0:
             gf_singularities = "low_freq"
         elif wavenumber == np.inf:
             gf_singularities = "high_freq"
         else:
             gf_singularities = self.gf_singularities
-        fortran_enum = {
-                'high_freq': self.fortran_core.constants.high_freq,
-                'low_freq': self.fortran_core.constants.low_freq,
-                'low_freq_with_rankine_part': self.fortran_core.constants.low_freq_with_rankine_part,
-                              }
-        gf_singularities_index = fortran_enum[gf_singularities]
 
         if free_surface == np.inf: # No free surface, only a single Rankine source term
             water_depth = np.inf  # Override water_depth in this case
@@ -391,7 +397,7 @@ class Delhommeau(AbstractGreenFunction):
             wavenumber, water_depth,
             coeffs, *self.all_tabulation_parameters,
             self.finite_depth_method_index, prony_decomposition, self.dispersion_relation_roots,
-            mesh1 is mesh2, gf_singularities_index, adjoint_double_layer,
+            mesh1 is mesh2, self.gf_singularities_fortran_enum[gf_singularities], adjoint_double_layer,
             S, K
         )
 

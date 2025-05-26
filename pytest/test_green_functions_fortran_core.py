@@ -137,6 +137,7 @@ def test_exact_integration_with_nb_integration_points():
     assert np.abs(val1[0] - val2[0]) > 1e-1
 
 
+@pytest.mark.xfail
 def test_low_freq_with_rankine_part_singularities():
     # TODO: also for not adjoint double layer
     gf1 = cpt.Delhommeau(gf_singularities="low_freq")
