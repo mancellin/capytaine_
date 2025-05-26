@@ -143,6 +143,7 @@ CONTAINS
         !  Reflected Rankine part  !
         !!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if ((coeffs(2) .NE. ZERO) .or. &
+            (.not. is_infinity(depth)) .or. &
             ((gf_singularities == LOW_FREQ_WITH_RANKINE_PART) .and. (coeffs(3) .NE. ZERO))) then
 
           if ((.not. is_infinity(depth)) .and. (finite_depth_method == LEGACY_FINITE_DEPTH)) then
@@ -156,7 +157,7 @@ CONTAINS
               int_G_Rankine,                              &
               int_nablaG_Rankine                          &
             )
-          else
+          else ! ((is_infinity(depth)) .or. (finite_depth_method == NEWER_FINITE_DEPTH) .or. (finite_depth_method == FINGREEN3D_METHOD))
             call integral_of_reflected_Rankine(          &
               centers_1(I, :),                           &
               vertices_2(faces_2(J, :), :),              &
@@ -193,8 +194,9 @@ CONTAINS
               [-ONE, -2*depth],                          &
               int_G_Rankine, int_nablaG_Rankine          &
               )
-            int_G = int_G + coeffs(2) * int_G_Rankine
-            int_nablaG(:) = int_nablaG(:) + coeffs(2) * int_nablaG_Rankine(:)
+            int_G = int_G + coeffs(1) * int_G_Rankine
+            int_nablaG(:) = int_nablaG(:) + coeffs(1) * int_nablaG_Rankine(:)
+            ! Using coeffs(1) here because this term does not change sign when using the high_frequency variant asymptotics
 
             ! 2. Reflection through sea bottom and free surface
             call one_point_integral_of_reflected_Rankine( &

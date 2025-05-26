@@ -126,12 +126,6 @@ class Delhommeau(AbstractGreenFunction):
         self.tabulation_grid_shape_index = fortran_enum[tabulation_grid_shape]
 
         self.gf_singularities = gf_singularities
-        fortran_enum = {
-                'high_freq': self.fortran_core.constants.high_freq,
-                'low_freq': self.fortran_core.constants.low_freq,
-                'low_freq_with_rankine_part': self.fortran_core.constants.low_freq_with_rankine_part,
-                              }
-        self.gf_singularities_index = fortran_enum[gf_singularities]
 
         self.finite_depth_method = finite_depth_method
         fortran_enum = {
@@ -344,32 +338,33 @@ class Delhommeau(AbstractGreenFunction):
 
         wavenumber = float(wavenumber)
 
+        if wavenumber == 0.0:
+            gf_singularities = "low_freq"
+        elif wavenumber == np.inf:
+            gf_singularities = "high_freq"
+        else:
+            gf_singularities = self.gf_singularities
+        fortran_enum = {
+                'high_freq': self.fortran_core.constants.high_freq,
+                'low_freq': self.fortran_core.constants.low_freq,
+                'low_freq_with_rankine_part': self.fortran_core.constants.low_freq_with_rankine_part,
+                              }
+        gf_singularities_index = fortran_enum[gf_singularities]
+
         if free_surface == np.inf: # No free surface, only a single Rankine source term
-
-            prony_decomposition = np.empty((1, 1))  # Dummy array that won't actually be used by the fortran code.
-
+            water_depth = np.inf  # Override water_depth in this case
             coeffs = np.array((1.0, 0.0, 0.0))
+        elif gf_singularities == "high_freq":
+            coeffs = np.array((1.0, -1.0, 1.0))
+        elif gf_singularities == "low_freq":
+            coeffs = np.array((1.0, 1.0, 1.0))
+        else:
+            raise NotImplementedError()
 
-        elif water_depth == np.inf:
-
-            prony_decomposition = np.empty((1, 1))  # Idem
-
-            if wavenumber == 0.0:
-                coeffs = np.array((1.0, 1.0, 0.0))
-            elif wavenumber == np.inf:
-                coeffs = np.array((1.0, -1.0, 0.0))
-            else:
-                if self.gf_singularities == "high_freq":
-                    coeffs = np.array((1.0, -1.0, 1.0))
-                else:  # low_freq or low_freq_with_rankine_part
-                    coeffs = np.array((1.0, 1.0, 1.0))
-
-        else:  # Finite water_depth
-            if wavenumber == 0.0 or wavenumber == np.inf:
-                raise NotImplementedError("Zero or infinite frequency are not implemented for finite depth.")
-            else:
-                prony_decomposition = self.find_best_exponential_decomposition(wavenumber*water_depth)
-                coeffs = np.array((1.0, 1.0, 1.0))
+        if water_depth == np.inf:
+            prony_decomposition = np.empty((1, 1))  # Dummy array that won't actually be used by the fortran code.
+        else:
+            prony_decomposition = self.find_best_exponential_decomposition(wavenumber*water_depth)
 
         collocation_points, early_dot_product_normals = self._get_colocation_points_and_normals(mesh1, mesh2, adjoint_double_layer)
 
@@ -396,7 +391,7 @@ class Delhommeau(AbstractGreenFunction):
             wavenumber, water_depth,
             coeffs, *self.all_tabulation_parameters,
             self.finite_depth_method_index, prony_decomposition, self.dispersion_relation_roots,
-            mesh1 is mesh2, self.gf_singularities_index, adjoint_double_layer,
+            mesh1 is mesh2, gf_singularities_index, adjoint_double_layer,
             S, K
         )
 

@@ -101,7 +101,7 @@ CONTAINS
           wavenumber, depth,                                         &
           tabulation_nb_integration_points, tabulation_grid_shape,   &
           tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-          ! gf_singularities,                                          &  ! Unimplemented for now
+          gf_singularities,                                          &
           prony_decomposition,                                       &
           derivative_with_respect_to_first_variable,                 &
           int_G, int_nablaG                                          &
@@ -146,6 +146,28 @@ CONTAINS
     complex(kind=pre)               :: G_at_point
     complex(kind=pre), dimension(3) :: nablaG_at_point
     integer                         :: nb_quad_points, Q
+
+    if (is_infinity(wavenumber)) then
+      if (gf_singularities == HIGH_FREQ) then
+        int_G = CZERO
+        int_nablaG(:) = CZERO
+        return
+      else
+        print*, "Use gf_singularities=HIGH_FREQ when computing infinite frequency"
+        error stop
+      endif
+    endif
+
+    if (wavenumber == 0.0) then
+      if (gf_singularities == LOW_FREQ) then
+        int_G = CZERO
+        int_nablaG(:) = CZERO
+        return
+      else
+        print*, "Use gf_singularities=LOW_FREQ when computing zero frequency"
+        error stop
+      endif
+    endif
 
     r = wavenumber * norm2(x(1:2) - face_center(1:2))
     z = wavenumber * (x(3) + face_center(3))
@@ -377,6 +399,7 @@ CONTAINS
       wavenumber, depth,                                         &
       tabulation_nb_integration_points, tabulation_grid_shape,   &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+      gf_singularities,                                          &
       prony_decomposition,                                       &
       derivative_with_respect_to_first_variable,                 &
       int_G, int_nablaG                                          &
@@ -391,6 +414,7 @@ CONTAINS
     real(kind=pre), dimension(:, :),          intent(in) :: face_quadrature_points
     real(kind=pre),                           intent(in) :: wavenumber, depth
     logical,                                  intent(in) :: derivative_with_respect_to_first_variable
+    integer,                                  intent(in) :: gf_singularities
 
     ! Tabulated data
     integer,                                  intent(in) :: tabulation_nb_integration_points
@@ -441,7 +465,7 @@ CONTAINS
       wavenumber,                                                &
       tabulation_nb_integration_points, tabulation_grid_shape,   &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      LOW_FREQ,                                                  &
+      gf_singularities,                                          &
       derivative_with_respect_to_first_variable,                 &
       int_G_term, int_nablaG_term                                &
       )
@@ -456,7 +480,7 @@ CONTAINS
       wavenumber,                                                &
       tabulation_nb_integration_points, tabulation_grid_shape,   &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      LOW_FREQ,                                                  &
+      gf_singularities,                                          &
       derivative_with_respect_to_first_variable,                 &
       int_G_term, int_nablaG_term                                &
       )
@@ -475,7 +499,7 @@ CONTAINS
       wavenumber,                                                &
       tabulation_nb_integration_points, tabulation_grid_shape,   &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      LOW_FREQ,                                                  &
+      gf_singularities,                                          &
       derivative_with_respect_to_first_variable,                 &
       int_G_term, int_nablaG_term                                &
       )
@@ -494,7 +518,7 @@ CONTAINS
       wavenumber,                                                &
       tabulation_nb_integration_points, tabulation_grid_shape,   &
       tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      LOW_FREQ,                                                  &
+      gf_singularities,                                          &
       derivative_with_respect_to_first_variable,                 &
       int_G_term, int_nablaG_term                                &
       )

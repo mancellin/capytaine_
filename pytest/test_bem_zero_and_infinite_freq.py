@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 import capytaine as cpt
+from capytaine.green_functions.abstract_green_function import GreenFunctionEvaluationError
 
 
 @pytest.fixture
@@ -14,20 +15,24 @@ def sphere():
     return body
 
 
-def test_limit_frequencies(sphere):
-    # TODO: do for direct and indirect
-    """Test if how the solver answers when asked for frequency of 0 or ∞."""
-    solver = cpt.BEMSolver()
-
+@pytest.mark.parametrize("method", ["direct", "indirect"])
+def test_zero_frequencies_inf_depth(sphere, method):
+    solver = cpt.BEMSolver(method=method)
     solver.solve(cpt.RadiationProblem(body=sphere, omega=0.0, water_depth=np.inf))
 
-    with pytest.raises(NotImplementedError):
+
+@pytest.mark.parametrize("method", ["direct", "indirect"])
+def test_zero_frequencies_fin_depth(sphere, method):
+    solver = cpt.BEMSolver(method=method)
+    with pytest.raises(GreenFunctionEvaluationError):
         solver.solve(cpt.RadiationProblem(body=sphere, omega=0.0, water_depth=1.0))
 
-    solver.solve(cpt.RadiationProblem(body=sphere, omega=np.inf, water_depth=np.inf))
 
-    with pytest.raises(NotImplementedError):
-        solver.solve(cpt.RadiationProblem(body=sphere, omega=np.inf, water_depth=10))
+@pytest.mark.parametrize("method", ["direct", "indirect"])
+@pytest.mark.parametrize("water_depth", [np.inf, 20.0])
+def test_infinite_frequency(sphere, method, water_depth):
+    solver = cpt.BEMSolver(method=method)
+    solver.solve(cpt.RadiationProblem(body=sphere, omega=np.inf, water_depth=water_depth))
 
 
 def test_radiation_damping_value(sphere):

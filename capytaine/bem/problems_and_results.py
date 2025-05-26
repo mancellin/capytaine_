@@ -176,16 +176,15 @@ class LinearPotentialFlowProblem:
         if self.water_depth < 0.0:
             raise ValueError("`water_depth` should be strictly positive (provided water depth: {self.water_depth}).")
 
-        if float(self.omega) in {0, np.inf}:
-            if self.water_depth != np.inf:
-                LOG.warning(
-                        f"Default Green function allows for {self.provided_freq_type}={float(self.__getattribute__(self.provided_freq_type))} only for infinite depth (provided water depth: {self.water_depth})."
-                        )
+        if float(self.omega) == 0.0 and self.water_depth != np.inf:
+            LOG.warning(
+                    f"Default Green function allows for {self.provided_freq_type}={float(self.__getattribute__(self.provided_freq_type))} only for infinite depth (provided water depth: {self.water_depth})."
+                    )
 
-            if self.forward_speed != 0.0:
-                raise NotImplementedError(
-                        f"omega={float(self.omega)} is only implemented without forward speed (provided forward speed: {self.forward_speed})."
-                )
+        if float(self.omega) in {0, np.inf} and self.forward_speed != 0.0:
+            raise NotImplementedError(
+                    f"{self.provided_freq_type}={float(self.__getattribute__(self.provided_freq_type))} is only implemented without forward speed (provided forward speed: {self.forward_speed})."
+            )
 
 
         if self.body is not None:
