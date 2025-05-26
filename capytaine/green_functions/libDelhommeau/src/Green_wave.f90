@@ -433,7 +433,7 @@ CONTAINS
     real(kind=pre), dimension(3)    :: x_sym, face_center_sym
     real(kind=pre), dimension(size(face_quadrature_points, 1), size(face_quadrature_points, 2)) :: face_quadrature_points_sym
     real(kind=pre)                  :: lambda_k, a_k
-    real(kind=pre)                  :: amh, akh, a
+    real(kind=pre)                  :: kh, tanhkh, a
     real(kind=pre)                  :: int_G_term_Rankine
     real(kind=pre), dimension(3)    :: int_nablaG_term_Rankine
     complex(kind=pre)               :: int_G_term
@@ -444,86 +444,88 @@ CONTAINS
     int_nablaG = czero
 
     ! Some coefficient
-    AMH  = wavenumber*depth
-    AKH  = AMH*TANH(AMH)
-    A    = (AMH+AKH)**2/(4*AMH*(AMH**2-AKH**2+AKH))
+    kh     = wavenumber*depth
+    tanhkh = TANH(kh)
+    A      = 1/4 * kh*(1+tanhkh)**2/(kh - kh*tanhkh**2 + tanhkh)
 
-    !========================================
-    ! Part 1: Solve 4 infinite depth problems
-    !========================================
+    if (.not. is_infinity(wavenumber)) then
+      !========================================
+      ! Part 1: Solve 4 infinite depth problems
+      !========================================
 
-    x_sym = sea_bottom_symmetric_of_point(x, depth)
-    call sea_bottom_symmetric_of_face(            &
-      face_center, face_quadrature_points, depth, &
-      face_center_sym, face_quadrature_points_sym)
+      x_sym = sea_bottom_symmetric_of_point(x, depth)
+      call sea_bottom_symmetric_of_face(            &
+        face_center, face_quadrature_points, depth, &
+        face_center_sym, face_quadrature_points_sym)
 
-    ! 1.a First infinite depth problem
-    CALL integral_of_wave_part_infinite_depth                    &
-      (x,                                                        &
-      face_center, face_area,                                    &
-      face_quadrature_points, face_quadrature_weights,           &
-      wavenumber,                                                &
-      tabulation_nb_integration_points, tabulation_grid_shape,   &
-      tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      gf_singularities,                                          &
-      derivative_with_respect_to_first_variable,                 &
-      int_G_term, int_nablaG_term                                &
-      )
-    int_G = int_G + A * int_G_term
-    int_nablaG = int_nablaG + A * int_nablaG_term
-
-    ! 1.b Reflect X and compute another value of the Green function
-    CALL integral_of_wave_part_infinite_depth                    &
-      (x_sym,                                                    &
-      face_center, face_area,                                    &
-      face_quadrature_points, face_quadrature_weights,           &
-      wavenumber,                                                &
-      tabulation_nb_integration_points, tabulation_grid_shape,   &
-      tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      gf_singularities,                                          &
-      derivative_with_respect_to_first_variable,                 &
-      int_G_term, int_nablaG_term                                &
-      )
-    int_G = int_G + A * int_G_term
-    if (derivative_with_respect_to_first_variable) then
-      int_nablaG = int_nablaG + A * symmetric_of_vector(int_nablaG_term)
-    else
+      ! 1.a First infinite depth problem
+      CALL integral_of_wave_part_infinite_depth                    &
+        (x,                                                        &
+        face_center, face_area,                                    &
+        face_quadrature_points, face_quadrature_weights,           &
+        wavenumber,                                                &
+        tabulation_nb_integration_points, tabulation_grid_shape,   &
+        tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+        gf_singularities,                                          &
+        derivative_with_respect_to_first_variable,                 &
+        int_G_term, int_nablaG_term                                &
+        )
+      int_G = int_G + A * int_G_term
       int_nablaG = int_nablaG + A * int_nablaG_term
-    endif
 
-    ! 1.c Reflect face and compute another value of the Green function
-    CALL integral_of_wave_part_infinite_depth                    &
-      (x,                                                        &
-      face_center_sym, face_area,                                &
-      face_quadrature_points_sym, face_quadrature_weights,       &
-      wavenumber,                                                &
-      tabulation_nb_integration_points, tabulation_grid_shape,   &
-      tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      gf_singularities,                                          &
-      derivative_with_respect_to_first_variable,                 &
-      int_G_term, int_nablaG_term                                &
-      )
-    int_G = int_G + A * int_G_term
-    if (derivative_with_respect_to_first_variable) then
-      int_nablaG = int_nablaG + A * int_nablaG_term
-    else
+      ! 1.b Reflect X and compute another value of the Green function
+      CALL integral_of_wave_part_infinite_depth                    &
+        (x_sym,                                                    &
+        face_center, face_area,                                    &
+        face_quadrature_points, face_quadrature_weights,           &
+        wavenumber,                                                &
+        tabulation_nb_integration_points, tabulation_grid_shape,   &
+        tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+        gf_singularities,                                          &
+        derivative_with_respect_to_first_variable,                 &
+        int_G_term, int_nablaG_term                                &
+        )
+      int_G = int_G + A * int_G_term
+      if (derivative_with_respect_to_first_variable) then
+        int_nablaG = int_nablaG + A * symmetric_of_vector(int_nablaG_term)
+      else
+        int_nablaG = int_nablaG + A * int_nablaG_term
+      endif
+
+      ! 1.c Reflect face and compute another value of the Green function
+      CALL integral_of_wave_part_infinite_depth                    &
+        (x,                                                        &
+        face_center_sym, face_area,                                &
+        face_quadrature_points_sym, face_quadrature_weights,       &
+        wavenumber,                                                &
+        tabulation_nb_integration_points, tabulation_grid_shape,   &
+        tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+        gf_singularities,                                          &
+        derivative_with_respect_to_first_variable,                 &
+        int_G_term, int_nablaG_term                                &
+        )
+      int_G = int_G + A * int_G_term
+      if (derivative_with_respect_to_first_variable) then
+        int_nablaG = int_nablaG + A * int_nablaG_term
+      else
+        int_nablaG = int_nablaG + A * symmetric_of_vector(int_nablaG_term)
+      endif
+
+      ! 1.d Reflect both x and face and compute another value of the Green function
+      CALL integral_of_wave_part_infinite_depth                    &
+        (x_sym,                                                    &
+        face_center_sym, face_area,                                &
+        face_quadrature_points_sym, face_quadrature_weights,       &
+        wavenumber,                                                &
+        tabulation_nb_integration_points, tabulation_grid_shape,   &
+        tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+        gf_singularities,                                          &
+        derivative_with_respect_to_first_variable,                 &
+        int_G_term, int_nablaG_term                                &
+        )
+      int_G = int_G + A * int_G_term
       int_nablaG = int_nablaG + A * symmetric_of_vector(int_nablaG_term)
     endif
-
-    ! 1.d Reflect both x and face and compute another value of the Green function
-    CALL integral_of_wave_part_infinite_depth                    &
-      (x_sym,                                                    &
-      face_center_sym, face_area,                                &
-      face_quadrature_points_sym, face_quadrature_weights,       &
-      wavenumber,                                                &
-      tabulation_nb_integration_points, tabulation_grid_shape,   &
-      tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-      gf_singularities,                                          &
-      derivative_with_respect_to_first_variable,                 &
-      int_G_term, int_nablaG_term                                &
-      )
-    int_G = int_G + A * int_G_term
-    int_nablaG = int_nablaG + A * symmetric_of_vector(int_nablaG_term)
 
     !=============================================================
     ! Part 2: Integrate Rankine terms approximating remaining term

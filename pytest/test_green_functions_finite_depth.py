@@ -36,16 +36,6 @@ def test_infinite_frequency_prony_decomposition():
     gf.find_best_exponential_decomposition(np.inf, method='python')
 
 
-@pytest.mark.xfail
-def test_infinite_frequency():
-    gf = cpt.Delhommeau()
-    mesh = cpt.mesh_sphere().immersed_part()
-    S_, K_ = gf.evaluate(mesh, mesh, free_surface=0.0, water_depth=10.0, wavenumber=100.0)
-    S, K = gf.evaluate(mesh, mesh, free_surface=0.0, water_depth=10.0, wavenumber=np.inf)
-    np.testing.assert_allclose(S, S_, rtol=1-2)
-    np.testing.assert_allclose(K, K_, rtol=1-2)
-
-
 def test_prony_decomposition():
     x = np.linspace(0.0, 1.0, 100)
     y = 2*np.exp(-x) - 4*np.exp(-2*x)

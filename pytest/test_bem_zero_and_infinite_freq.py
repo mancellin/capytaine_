@@ -29,10 +29,23 @@ def test_zero_frequencies_fin_depth(sphere, method):
 
 
 @pytest.mark.parametrize("method", ["direct", "indirect"])
-@pytest.mark.parametrize("water_depth", [np.inf, 20.0])
-def test_infinite_frequency(sphere, method, water_depth):
+def test_infinite_frequency_inf_depth(sphere, method):
     solver = cpt.BEMSolver(method=method)
-    solver.solve(cpt.RadiationProblem(body=sphere, omega=np.inf, water_depth=water_depth))
+    solver.solve(cpt.RadiationProblem(body=sphere, omega=np.inf, water_depth=np.inf))
+
+
+@pytest.mark.parametrize("method", ["direct", "indirect"])
+def test_infinite_frequency_fin_depth(sphere, method):
+    solver = cpt.BEMSolver(method=method)
+    solver.solve(cpt.RadiationProblem(body=sphere, omega=np.inf, water_depth=10.0))
+
+
+def test_infinite_frequency_fin_depth_matrix(sphere):
+    gf = cpt.Delhommeau(gf_singularities="high_freq")
+    S_, K_ = gf.evaluate(sphere.mesh, sphere.mesh, free_surface=0.0, water_depth=10.0, wavenumber=1000.0)
+    S, K = gf.evaluate(sphere.mesh, sphere.mesh, free_surface=0.0, water_depth=10.0, wavenumber=np.inf)
+    np.testing.assert_allclose(S, S_, rtol=1e-2)
+    np.testing.assert_allclose(K, K_, rtol=1e-2)
 
 
 def test_radiation_damping_value(sphere):
