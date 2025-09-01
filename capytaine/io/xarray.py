@@ -188,7 +188,7 @@ def _detect_bemio_results(results, calling_function="_detect_bemio_results"):
 
 def assemble_dataframe(results, wavenumber=True, wavelength=True):
     if _detect_bemio_results(results, calling_function="assemble_dataframe"):
-        return dataframe_from_bemio(results, wavenumber, wavelength) # TODO add hydrostatics
+        return dataframe_from_bemio(results, wavenumber=wavenumber, wavelength=wavelength) # TODO add hydrostatics
 
     records_list = [record for result in results for record in result.records]
     df = pd.DataFrame(records_list)

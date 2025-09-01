@@ -1,3 +1,4 @@
+"""This module contains functions interacting with BEMIO file format and the Python BEMIO library."""
 import logging
 
 import numpy as np
@@ -6,11 +7,21 @@ from scipy.optimize import newton
 
 LOG = logging.getLogger(__name__)
 
-#######################
-#  Import from Bemio  #
-#######################
 
-def dataframe_from_bemio(bemio_obj, wavenumber, wavelength):
+def _all_freqs_from_omega(omega, water_depth=np.inf, g=9.81):
+    if water_depth == np.inf:
+        k = omega**2/g
+    else:
+        k = newton(lambda x: x*np.tanh(x) - omega**2*water_depth/g, x0=1.0)/water_depth
+    return {
+        'omega': omega,
+        'period': 2*np.pi/omega,
+        'freq': omega/2*np.pi,
+        'wavenumber': k,
+        'wavelength': 2*np.pi/k,
+    }
+
+def dataframe_from_bemio(bemio_obj, *, wavenumber=True, wavelength=True):
     """Transform a :class:`bemio.data_structures.bem.HydrodynamicData` into a
         :class:`pandas.DataFrame`.
 
@@ -25,52 +36,44 @@ def dataframe_from_bemio(bemio_obj, wavenumber, wavelength):
             If True, the coordinate 'wavelength' will be added to the output dataset.
         """
 
+    n_bodies = len(bemio_obj.body)
 
-    dofs = np.array(['Surge', 'Sway', 'Heave', 'Roll', 'Pitch', 'Yaw'])
-    for i in range(bemio_obj.body[0].num_bodies):
-        difr_dict = []
-        rad_dict = []
+    dofs_of_a_body = np.array(['Surge', 'Sway', 'Heave', 'Roll', 'Pitch', 'Yaw'])
+    if n_bodies == 1:
+        all_dofs = np.array([dofs_of_a_body])
+    else:
+        all_dofs = np.array([[bemio_obj.body[i].name + "__" + d for d in dofs_of_a_body] for i in range(n_bodies)])
 
-        rho = bemio_obj.body[0].rho
-        g = bemio_obj.body[0].g
+    # The parameter below are expected to be the same for all bodies in the dataset.
+    # (Capytaine could not really handle anyway if they weren't.)
+    rho = bemio_obj.body[0].rho
+    g = bemio_obj.body[0].g
+    if bemio_obj.body[0].water_depth == 'infinite':
+        water_depth = np.inf
+    else:
+        water_depth = bemio_obj.body[0].water_depth
 
-        if bemio_obj.body[i].water_depth == 'infinite':
-            bemio_obj.body[i].water_depth = np.inf
+    full_body_name = '+'.join([bemio_obj.body[i].name for i in range(n_bodies)])
 
+    params = {
+            "body_name": full_body_name,
+            "water_depth": water_depth,
+            "rho": rho,
+            "g": g,
+            "forward_speed": 0.0,
+            "free_surface": 0.0,
+            }
+
+    difr_dict = []
+    rad_dict = []
+
+    for i in range(n_bodies):
         from_wamit = (bemio_obj.body[i].bem_code == 'WAMIT') # WAMIT coefficients need to be dimensionalized
 
-        for omega_idx, omega in enumerate(np.sort(bemio_obj.body[i].w)):
+        for omega_idx, omega in enumerate(bemio_obj.body[i].w):
 
-            # DiffractionProblem variable equivalents
+            # DIFFRACTION DATA
             for dir_idx, dir in enumerate(bemio_obj.body[i].wave_dir):
-                temp_dict = {}
-                temp_dict['body_name'] = bemio_obj.body[i].name
-                temp_dict['water_depth'] = bemio_obj.body[i].water_depth
-                temp_dict['omega'] = omega
-                temp_dict['freq'] = omega/(2*np.pi)
-                temp_dict['period'] = 2*np.pi/omega
-                temp_dict['rho'] = rho
-                temp_dict['g'] = g
-                temp_dict['kind'] = "DiffractionResult"
-                temp_dict['forward_speed'] = 0.0
-                temp_dict['free_surface'] = 0.0
-                temp_dict['wave_direction'] = np.radians(dir)
-                temp_dict['influenced_dof'] = dofs
-
-                if wavenumber or wavelength:
-                    if temp_dict['water_depth'] == np.inf or omega**2*temp_dict['water_depth']/temp_dict['g'] > 20:
-                        k = omega**2/temp_dict['g']
-                    else:
-                        k = newton(lambda x: x*np.tanh(x) - omega**2*temp_dict['water_depth']/temp_dict['g'], x0=1.0)/temp_dict['water_depth']
-
-                    if wavenumber:
-                        temp_dict['wavenumber'] = k
-
-                    if wavelength:
-                        if k == 0.0:
-                            temp_dict['wavelength'] = np.inf
-                        else:
-                            temp_dict['wavelength'] = 2*np.pi/k
 
                 Fexc = np.empty(shape=bemio_obj.body[i].ex.re[:, dir_idx, omega_idx].shape, dtype=np.complex128)
                 if from_wamit:
@@ -79,7 +82,6 @@ def dataframe_from_bemio(bemio_obj, wavenumber, wavelength):
                 else:
                     Fexc.real = bemio_obj.body[i].ex.re[:, dir_idx, omega_idx]
                     Fexc.imag = bemio_obj.body[i].ex.im[:, dir_idx, omega_idx]
-                temp_dict['diffraction_force'] = Fexc.flatten()
 
                 try:
                     Fexc_fk = np.empty(shape=bemio_obj.body[i].ex.fk.re[:, dir_idx, omega_idx].shape, dtype=np.complex128)
@@ -89,53 +91,41 @@ def dataframe_from_bemio(bemio_obj, wavenumber, wavelength):
                     else:
                         Fexc_fk.real = bemio_obj.body[i].ex.fk.re[:, dir_idx, omega_idx]
                         Fexc_fk.imag = bemio_obj.body[i].ex.fk.im[:, dir_idx, omega_idx]
-                    temp_dict['Froude_Krylov_force'] = Fexc_fk.flatten()
 
                 except AttributeError:
                         # LOG.warning('\tNo Froude-Krylov forces found for ' + bemio_obj.body[i].name + ' at ' + str(dir) + \
                         #       ' degrees (omega = ' + str(omega) + '), replacing with zeros.')
-                        temp_dict['Froude_Krylov_force'] = np.zeros((bemio_obj.body[i].ex.re[:, dir_idx, omega_idx].size,), dtype=np.complex128)
+                        Fexc_fk = np.full((bemio_obj.body[i].ex.re[:, dir_idx, omega_idx].size,), np.nan, dtype=np.complex128)
 
-                difr_dict.append(temp_dict)
+                difr_dict.append({
+                        **params,
+                        **_all_freqs_from_omega(omega, water_depth, g),
+                        'kind': "DiffractionResult",
+                        'wave_direction': np.radians(dir),
+                        'influenced_dof': all_dofs[i],
+                        'diffraction_force': Fexc,
+                        'Froude_Krylov_force': Fexc_fk,
+                        })
 
-            # RadiationProblem + Hydrostatics variable equivalents
-            for radiating_dof_idx, radiating_dof in enumerate(dofs):
-                temp_dict = {}
-                temp_dict['body_name'] = bemio_obj.body[i].name
-                temp_dict['water_depth'] = bemio_obj.body[i].water_depth
-                temp_dict['omega'] = omega
-                temp_dict['freq'] = omega/(2*np.pi)
-                temp_dict['rho'] = rho
-                temp_dict['g'] = g
-                temp_dict['kind'] = "RadiationResult"
-                temp_dict['free_surface'] = 0.0
-                temp_dict['forward_speed'] = 0.0
-                temp_dict['wave_direction'] = 0.0
-                temp_dict['influenced_dof'] = dofs
-                temp_dict['radiating_dof'] = radiating_dof
-                temp_dict['added_mass'] = bemio_obj.body[i].am.all[radiating_dof_idx, :, omega_idx].flatten()
-                temp_dict['radiation_damping'] = bemio_obj.body[i].rd.all[radiating_dof_idx, :, omega_idx].flatten()
+            for radiating_dof_idx, radiating_dof in enumerate(all_dofs[i]):
 
+                A = bemio_obj.body[i].am.all[radiating_dof_idx, :, omega_idx]
+                B = bemio_obj.body[i].rd.all[radiating_dof_idx, :, omega_idx]
                 if from_wamit:
-                    temp_dict['added_mass'] = temp_dict['added_mass'] * rho
-                    temp_dict['radiation_damping'] = temp_dict['radiation_damping'] * rho * omega
+                    A = A * rho
+                    B = B * rho * omega
 
-                if wavenumber or wavelength:
-                    if temp_dict['water_depth'] == np.inf or omega**2*temp_dict['water_depth']/temp_dict['g'] > 20:
-                        k = omega**2/temp_dict['g']
-                    else:
-                        k = newton(lambda x: x*np.tanh(x) - omega**2*temp_dict['water_depth']/temp_dict['g'], x0=1.0)/temp_dict['water_depth']
-
-                    if wavenumber:
-                        temp_dict['wavenumber'] = k
-
-                    if wavelength:
-                        if k == 0.0:
-                            temp_dict['wavelength'] = np.inf
-                        else:
-                            temp_dict['wavelength'] = 2*np.pi/k
-
-                rad_dict.append(temp_dict)
+                rad_dict.append({
+                        **params,
+                        **_all_freqs_from_omega(omega, water_depth, g),
+                        'kind': "RadiationResult",
+                        'omega':  omega,
+                        'radiating_dof': radiating_dof,
+                        'influenced_dof': all_dofs.ravel(),
+                        'wave_direction': 0.0,
+                        'added_mass': A,
+                        'radiation_damping': B
+                        })
 
     df = pd.concat([
         pd.DataFrame.from_dict(difr_dict).explode(['influenced_dof', 'diffraction_force', 'Froude_Krylov_force']),
@@ -143,11 +133,10 @@ def dataframe_from_bemio(bemio_obj, wavenumber, wavelength):
         ])
     df = df.astype({'added_mass': np.float64, 'radiation_damping': np.float64, 'diffraction_force': np.complex128, 'Froude_Krylov_force': np.complex128})
 
-    all_dofs_in_order = ['Surge', 'Sway', 'Heave', 'Roll', 'Pitch', 'Yaw']
-    inf_dof_cat = pd.CategoricalDtype(categories=all_dofs_in_order)
+    inf_dof_cat = pd.CategoricalDtype(categories=all_dofs.ravel())
     df["influenced_dof"] = df["influenced_dof"].astype(inf_dof_cat)
     if 'added_mass' in df.columns:
-        rad_dof_cat = pd.CategoricalDtype(categories=all_dofs_in_order)
+        rad_dof_cat = pd.CategoricalDtype(categories=all_dofs.ravel())
         df["radiating_dof"] = df["radiating_dof"].astype(rad_dof_cat)
 
     return df
