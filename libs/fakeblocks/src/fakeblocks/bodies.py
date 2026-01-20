@@ -1,5 +1,8 @@
+from itertools import chain, zip_longest
 import numpy as np
-from capytaine import CollectionOfMeshes, FloatingBody
+from capytaine import FloatingBody
+from capytaine.meshes.collections import CollectionOfMeshes
+from capytaine.meshes.geometry import Plane
 
 def join_bodies(*bodies, name=None) -> 'FloatingBody':
     """Legacy FloatingBody.join_bodies from Capytaine"""
@@ -106,7 +109,7 @@ def minced(body, nb_slices=(8, 8, 4)):
     for planes in intermingled_x_y_z:
         if planes is not None:
             for plane in planes:
-                minced_body = minced_body.sliced_by_plane(plane)
+                minced_body = sliced_by_plane(minced_body, plane)
     return minced_body
 
 

@@ -291,7 +291,10 @@ class BEMSolver:
             self._check_wavelength_and_mesh_resolution(problems)
             self._check_wavelength_and_irregular_frequencies(problems)
 
-        self._check_ram(problems, n_jobs)
+        try:
+            self._check_ram(problems, n_jobs)
+        except NotImplementedError:
+            LOG.info("Could not estimate RAM usage because it is not supported by the engine")
 
         if progress_bar is None:
             if "CAPYTAINE_PROGRESS_BAR" in os.environ:

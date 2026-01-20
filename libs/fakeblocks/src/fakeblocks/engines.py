@@ -65,6 +65,9 @@ class HierarchicalToeplitzMatrixEngine:
     def _repr_pretty_(self, p, cycle):
         p.text(self.__str__())
 
+    def compute_ram_estimation(*args, **kwargs):
+        raise NotImplementedError()
+
     def build_S_matrix(self, mesh1, mesh2, free_surface, water_depth, wavenumber):
         """Similar to :code:`build_matrices`, but returning only :math:`S`"""
         S, _ = self.green_function.evaluate(
@@ -80,18 +83,11 @@ class HierarchicalToeplitzMatrixEngine:
             )
         return fullK
 
-    def build_matrices(self,
-                       mesh1, mesh2, free_surface, water_depth, wavenumber,
-                       adjoint_double_layer=True):
-
-        return self._build_matrices(
-                           mesh1, mesh2, free_surface, water_depth, wavenumber,
-                           adjoint_double_layer, _rec_depth=1)
+    def build_matrices(self, mesh1, mesh2, *, diagonal_term_in_double_layer=True, **gf_params):
+        return self._build_matrices( mesh1, mesh2, _rec_depth=1, diagonal_term_in_double_layer=diagonal_term_in_double_layer, **gf_params)
 
 
-    def _build_matrices(self,
-                       mesh1, mesh2, free_surface, water_depth, wavenumber,
-                       adjoint_double_layer, _rec_depth=1):
+    def _build_matrices(self, mesh1, mesh2, *, _rec_depth=1, diagonal_term_in_double_layer=True, **gf_params):
         """Recursively builds a hierarchical matrix between mesh1 and mesh2.
 
         Same arguments as :func:`BasicMatrixEngine.build_matrices`.
@@ -121,11 +117,9 @@ class HierarchicalToeplitzMatrixEngine:
             LOG.debug(log_entry + " using mirror symmetry.")
 
             S_a, V_a = self._build_matrices(
-                mesh1[0], mesh2[0], free_surface, water_depth, wavenumber,
-                adjoint_double_layer=adjoint_double_layer, _rec_depth=_rec_depth+1)
+                mesh1[0], mesh2[0], _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=diagonal_term_in_double_layer, **gf_params)
             S_b, V_b = self._build_matrices(
-                mesh1[0], mesh2[1], free_surface, water_depth, wavenumber,
-                adjoint_double_layer=adjoint_double_layer, _rec_depth=_rec_depth+1)
+                mesh1[0], mesh2[1], _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=False, **gf_params)
 
             return BlockSymmetricToeplitzMatrix([[S_a, S_b]]), BlockSymmetricToeplitzMatrix([[V_a, V_b]])
 
@@ -137,16 +131,18 @@ class HierarchicalToeplitzMatrixEngine:
             LOG.debug(log_entry + " using translational symmetry.")
 
             S_list, V_list = [], []
-            for submesh in mesh2:
+            S, V = self._build_matrices(
+                mesh1[0], mesh2[0], _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=diagonal_term_in_double_layer, **gf_params)
+            S_list.append(S)
+            V_list.append(V)
+            for submesh in mesh2[1:]:
                 S, V = self._build_matrices(
-                    mesh1[0], submesh, free_surface, water_depth, wavenumber,
-                    adjoint_double_layer=adjoint_double_layer, _rec_depth=_rec_depth+1)
+                    mesh1[0], submesh, _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=False, **gf_params)
                 S_list.append(S)
                 V_list.append(V)
             for submesh in mesh1[1:][::-1]:
                 S, V = self._build_matrices(
-                    submesh, mesh2[0], free_surface, water_depth, wavenumber,
-                    adjoint_double_layer=adjoint_double_layer, _rec_depth=_rec_depth+1)
+                    submesh, mesh2[0], _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=False, **gf_params)
                 S_list.append(S)
                 V_list.append(V)
 
@@ -160,10 +156,13 @@ class HierarchicalToeplitzMatrixEngine:
             LOG.debug(log_entry + " using rotation symmetry.")
 
             S_line, V_line = [], []
-            for submesh in mesh2[:mesh2.nb_submeshes]:
+            S, V = self._build_matrices(
+                mesh1[0], mesh2[0], _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=diagonal_term_in_double_layer, **gf_params)
+            S_line.append(S)
+            V_line.append(V)
+            for submesh in mesh2[1:mesh2.nb_submeshes]:
                 S, V = self._build_matrices(
-                    mesh1[0], submesh, free_surface, water_depth, wavenumber,
-                    adjoint_double_layer=adjoint_double_layer, _rec_depth=_rec_depth+1)
+                    mesh1[0], submesh, _rec_depth=_rec_depth+1, diagonal_term_in_double_layer=False, **gf_params)
                 S_line.append(S)
                 V_line.append(V)
 
@@ -178,16 +177,16 @@ class HierarchicalToeplitzMatrixEngine:
             def get_row_func(i):
                 s, v = self.green_function.evaluate(
                     mesh1.extract_one_face(i), mesh2,
-                    free_surface, water_depth, wavenumber,
-                    adjoint_double_layer=adjoint_double_layer
+                    diagonal_term_in_double_layer=False,
+                    **gf_params
                 )
                 return s.flatten(), v.flatten()
 
             def get_col_func(j):
                 s, v = self.green_function.evaluate(
                     mesh1, mesh2.extract_one_face(j),
-                    free_surface, water_depth, wavenumber,
-                    adjoint_double_layer=adjoint_double_layer
+                    diagonal_term_in_double_layer=False,
+                    **gf_params
                 )
                 return s.flatten(), v.flatten()
 
@@ -212,8 +211,9 @@ class HierarchicalToeplitzMatrixEngine:
                 S_line, V_line = [], []
                 for submesh2 in mesh2:
                     S, V = self._build_matrices(
-                        submesh1, submesh2, free_surface, water_depth, wavenumber,
-                        adjoint_double_layer=adjoint_double_layer, _rec_depth=_rec_depth+1)
+                        submesh1, submesh2, _rec_depth=_rec_depth+1,
+                        diagonal_term_in_double_layer=(diagonal_term_in_double_layer and (submesh1 is submesh2)),
+                        **gf_params)
 
                     S_line.append(S)
                     V_line.append(V)
@@ -228,7 +228,7 @@ class HierarchicalToeplitzMatrixEngine:
             LOG.debug(log_entry)
 
             S, V = self.green_function.evaluate(
-                mesh1, mesh2, free_surface, water_depth, wavenumber, adjoint_double_layer=adjoint_double_layer
+                mesh1, mesh2, diagonal_term_in_double_layer=diagonal_term_in_double_layer, **gf_params
             )
             return S, V
 
@@ -319,18 +319,14 @@ class HierarchicalPrecondMatrixEngine(HierarchicalToeplitzMatrixEngine):
     def __init__(self, *, ACA_distance=8.0, ACA_tol=1e-2, matrix_cache_size=1):
         super().__init__(ACA_distance=ACA_distance, ACA_tol=ACA_tol, matrix_cache_size=matrix_cache_size)
 
-    def build_matrices(self,
-                       mesh1, mesh2, free_surface, water_depth, wavenumber,
-                       adjoint_double_layer=True):
+    def build_matrices(self, mesh1, mesh2, **gf_params):
         """Recursively builds a hierarchical matrix between mesh1 and mesh2,
         and precomputes some of the quantities needed for the preconditioner.
 
         Same arguments as :func:`BasicMatrixEngine.build_matrices`, except for rec_depth
         """
         # Build the matrices using the method of the parent class
-        S, K = super().build_matrices(mesh1, mesh2, free_surface, water_depth,
-                                      wavenumber,
-                                      adjoint_double_layer=adjoint_double_layer)
+        S, K = super().build_matrices(mesh1, mesh2, **gf_params)
 
         path_to_leaf = mesh1.path_to_leaf()
 

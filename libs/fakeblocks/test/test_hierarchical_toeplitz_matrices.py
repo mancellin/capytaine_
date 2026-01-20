@@ -163,7 +163,7 @@ def test_low_rank_matrices(method):
     two_distant_buoys = join_bodies(buoy, buoy.translated_x(20))
     two_distant_buoys.mesh._meshes[1].name = "other_buoy_mesh"
 
-    S, V = solver_with_sym.engine.build_matrices(two_distant_buoys.mesh, two_distant_buoys.mesh, 0.0, np.inf, 1.0)
+    S, V = solver_with_sym.engine.build_matrices(two_distant_buoys.mesh, two_distant_buoys.mesh, free_surface=0.0, water_depth=np.inf, wavenumber=1.0)
     assert isinstance(S.all_blocks[0, 1], LowRankMatrix)
     assert isinstance(S.all_blocks[1, 0], LowRankMatrix)
     # S.plot_shape()
@@ -205,10 +205,10 @@ def test_array_of_spheres(method, adjoint_double_layer):
     #
     array = buoy.assemble_regular_array(distance=4.0, nb_bodies=(3, 1))
 
-    fullS, fullV = solver_without_sym.engine.build_matrices(array.mesh, array.mesh, 0.0, np.inf,
-                                                            1.0, adjoint_double_layer=adjoint_double_layer)
-    S, V = solver_with_sym.engine.build_matrices(array.mesh, array.mesh, 0.0, np.inf,
-                                                 1.0, adjoint_double_layer=adjoint_double_layer)
+    fullS, fullV = solver_without_sym.engine.build_matrices(array.mesh, array.mesh, free_surface=0.0, water_depth=np.inf,
+                                                            wavenumber=1.0, adjoint_double_layer=adjoint_double_layer)
+    S, V = solver_with_sym.engine.build_matrices(array.mesh, array.mesh, free_surface=0.0, water_depth=np.inf,
+                                                 wavenumber=1.0, adjoint_double_layer=adjoint_double_layer)
 
     assert isinstance(S, BlockMatrix)
     assert np.allclose(S.full_matrix(), fullS)
