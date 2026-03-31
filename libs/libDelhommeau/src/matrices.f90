@@ -13,9 +13,289 @@ module matrices
 
 contains
 
+
   ! =====================================================================
 
-  subroutine build_matrices(                                          &
+  subroutine build_matrices_element( &
+      I, J, &
+      nb_collocation_points, collocation_points, dot_product_normals, &
+      nb_vertices, nb_faces, vertices, faces, &
+      centers, normals, areas, radiuses, &
+      nb_quad_points, quad_points, quad_weights, &
+      wavenumber, depth, &
+      tabulation_nb_integration_points, &
+      tabulation_grid_shape, &
+      tabulated_r_range, tabulated_z_range, &
+      tabulated_integrals, &
+      finite_depth_method, prony_decomposition, dispersion_roots, &
+      gf_singularities, adjoint_double_layer, &
+      sign_reflected_Rankine, &
+      derivative_with_respect_to_first_variable, &
+      finite_depth, finite_wavenumber, &
+      S, K)
+
+    integer,                                              intent(in) :: I, J
+
+    ! Mesh data
+    integer,                                              intent(in) :: nb_collocation_points
+    real(kind=pre), dimension(nb_collocation_points, 3),  intent(in) :: collocation_points
+    real(kind=pre), dimension(:, :),           intent(in) :: dot_product_normals
+    ! If adjoint_double_layer:     size(dot_product_normals) == (nb_collocation_points, 3)
+    ! If not adjoint_double_layer: size(dot_product_normals) == (nb_faces, 3)
+
+    integer, intent(in)                                   :: nb_vertices, nb_faces
+    real(kind=pre), dimension(nb_vertices, 3), intent(in) :: vertices
+    integer,        dimension(nb_faces, 4),    intent(in) :: faces
+    real(kind=pre), dimension(nb_faces, 3),    intent(in) :: centers, normals
+    real(kind=pre), dimension(nb_faces),       intent(in) :: areas, radiuses
+    integer,                                                intent(in) :: nb_quad_points
+    real(kind=pre), dimension(nb_faces, nb_quad_points, 3), intent(in) :: quad_points
+    real(kind=pre), dimension(nb_faces, nb_quad_points),    intent(in) :: quad_weights
+
+    ! Solver parameters
+    integer,                                  intent(in) :: gf_singularities
+    logical,                                  intent(in) :: adjoint_double_layer
+
+    real(kind=pre),                           intent(in) :: wavenumber, depth
+
+    ! Tabulated values for the wave part of the Green function
+    integer,                                  intent(in) :: tabulation_grid_shape
+    integer,                                  intent(in) :: tabulation_nb_integration_points
+    real(kind=pre), dimension(:),             intent(in) :: tabulated_r_range
+    real(kind=pre), dimension(:),             intent(in) :: tabulated_z_range
+    real(kind=pre), dimension(:, :, :),       intent(in) :: tabulated_integrals
+
+    integer,                                  intent(in) :: finite_depth_method
+    real(kind=pre), dimension(:, :),          intent(in) :: prony_decomposition  ! For Delhommeau's finite depth, dummy otherwise
+    real(kind=pre), dimension(:),             intent(in) :: dispersion_roots  ! For FinGreen3D, dummy otherwise
+
+    ! Precomputed values
+    real(kind=pre),                           intent(in) :: sign_reflected_Rankine
+    logical,                                  intent(in) :: derivative_with_respect_to_first_variable
+    logical,                                  intent(in) :: finite_depth, finite_wavenumber
+
+    ! Outputs
+    complex(kind=pre), dimension(:, :),    intent(inout) :: S
+    complex(kind=pre), dimension(:, :, :), intent(inout) :: K
+
+    ! Local variables
+    real(kind=pre)                  :: int_G_rankine
+    real(kind=pre), dimension(3)    :: int_nablaG_rankine
+    complex(kind=pre)               :: int_G, int_G_wave
+    complex(kind=pre), dimension(3) :: int_nablaG, int_nablaG_wave
+
+    int_G = CZERO
+    int_nablaG = CZERO
+
+    !!!!!!!!!!!!!!!!!!
+    !  Rankine part  !
+    !!!!!!!!!!!!!!!!!!
+    call integral_of_Rankine(                    &
+      collocation_points(I, :),                  &
+      vertices(faces(J, :), :),                  &
+      centers(J, :),                             &
+      normals(J, :),                             &
+      areas(J),                                  &
+      radiuses(J),                               &
+      derivative_with_respect_to_first_variable, &
+      int_G_Rankine, int_nablaG_Rankine          &
+      )
+
+    int_G = int_G + int_G_Rankine
+    int_nablaG(:) = int_nablaG(:) + int_nablaG_Rankine(:)
+    ! Not sign_reflected_Rankine!
+    ! The sign of this term does not change in the high frequency limit.
+
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !  Reflected Rankine part  !
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    if (finite_depth .and. (finite_depth_method == LEGACY_FINITE_DEPTH)) then
+      ! Reproduce behavior of legacy finite depth method
+      call one_point_integral_of_reflected_Rankine( &
+        collocation_points(I, :),                   &
+        centers(J, :),                              &
+        areas(J),                                   &
+        derivative_with_respect_to_first_variable,  &
+        [-ONE, ZERO],                               &
+        int_G_Rankine,                              &
+        int_nablaG_Rankine                          &
+      )
+    else
+      call integral_of_reflected_Rankine(          &
+        collocation_points(I, :),                  &
+        vertices(faces(J, :), :),                  &
+        centers(J, :),                             &
+        normals(J, :),                             &
+        areas(J),                                  &
+        radiuses(J),                               &
+        derivative_with_respect_to_first_variable, &
+        [-ONE, ZERO],                              &
+        int_G_Rankine,                             &
+        int_nablaG_Rankine                         &
+        )
+    endif
+    int_G = int_G + sign_reflected_Rankine * int_G_Rankine
+    int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+
+    if (gf_singularities == LOW_FREQ_WITH_RANKINE_PART) then
+      int_nablaG(3) = int_nablaG(3) + 2*wavenumber * int_G_Rankine
+    endif
+
+    if (.not. finite_depth) then
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !  Infinite depth wave part  !
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      if (finite_wavenumber) then
+        call integral_of_wave_part_infinite_depth                    &
+          (collocation_points(I, :),                                 &
+          centers(J, :), areas(J),                                   &
+          quad_points(J, :, :), quad_weights(J, :),                  &
+          wavenumber,                                                &
+          tabulation_nb_integration_points, tabulation_grid_shape,   &
+          tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+          gf_singularities,                                          &
+          derivative_with_respect_to_first_variable,                 &
+          int_G_wave, int_nablaG_wave                                &
+          )
+          int_G = int_G + int_G_wave
+          int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
+      ! else zero, assuming gf_singularities has been set up correctly, that is
+      ! low_freq for wavenumber = 0 and high_freq for wavenumber = inf
+      endif
+
+    else  ! Finite depth
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!
+      !  FinGreen3D wave part  !
+      !!!!!!!!!!!!!!!!!!!!!!!!!!
+      if (finite_depth_method == FINGREEN3D_METHOD) then
+        call integral_of_wave_part_fingreen3D                 &
+          (collocation_points(I, :),                          &
+          quad_points(J, :, :), quad_weights(J, :),           &
+          wavenumber, depth, dispersion_roots,                &
+          derivative_with_respect_to_first_variable,          &
+          int_G_wave, int_nablaG_wave                         &
+          )
+          int_G = int_G + int_G_wave
+          int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
+
+      else  ! Delhommeau's finite depth method
+
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        !  Supplementary Rankine parts in finite depth  !
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ! 1. Reflection through sea bottom
+        call integral_of_reflected_Rankine(          &
+          collocation_points(I, :),                  &
+          vertices(faces(J, :), :),                  &
+          centers(J, :),                             &
+          normals(J, :),                             &
+          areas(J),                                  &
+          radiuses(J),                               &
+          derivative_with_respect_to_first_variable, &
+          [-ONE, -2*depth],                          &
+          int_G_Rankine, int_nablaG_Rankine          &
+          )
+        int_G = int_G + int_G_Rankine
+        int_nablaG(:) = int_nablaG(:) + int_nablaG_Rankine(:)
+        ! Not sign_reflected_Rankine!
+        ! The sign of this term does not change in the high frequency limit.
+
+        ! 2. Reflection through sea bottom and free surface
+        call one_point_integral_of_reflected_Rankine( &
+          collocation_points(I, :),                   &
+          centers(J, :),                              &
+          areas(J),                                   &
+          derivative_with_respect_to_first_variable,  &
+          [ONE, -2*depth],                            &
+          int_G_Rankine, int_nablaG_Rankine           &
+          )
+        int_G = int_G + sign_reflected_Rankine * int_G_Rankine
+        int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+
+        ! 3. Reflection through free surface and sea bottom
+        call one_point_integral_of_reflected_Rankine( &
+          collocation_points(I, :),                   &
+          centers(J, :),                              &
+          areas(J),                                   &
+          derivative_with_respect_to_first_variable,  &
+          [ONE, 2*depth],                             &
+          int_G_Rankine, int_nablaG_Rankine           &
+          )
+        int_G = int_G + sign_reflected_Rankine * int_G_Rankine
+        int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+
+        ! 4. Reflection through sea bottom and free surface and sea bottom again
+        call one_point_integral_of_reflected_rankine( &
+          collocation_points(I, :),                   &
+          centers(J, :),                              &
+          areas(J),                                   &
+          derivative_with_respect_to_first_variable,  &
+          [-ONE, -4*depth],                           &
+          int_G_Rankine, int_nablaG_Rankine           &
+          )
+        int_G = int_G + sign_reflected_Rankine * int_G_Rankine
+        int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        !  Delhommeau's finite depth wave term  !
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        if (finite_wavenumber) then
+          call integral_of_wave_parts_finite_depth                     &
+            (collocation_points(I, :),                                 &
+            centers(J, :), areas(J),                                   &
+            quad_points(J, :, :), quad_weights(J, :),                  &
+            wavenumber, depth,                                         &
+            tabulation_nb_integration_points, tabulation_grid_shape,   &
+            tabulated_r_range, tabulated_z_range, tabulated_integrals, &
+            gf_singularities,                                          &
+            derivative_with_respect_to_first_variable,                 &
+            int_G_wave, int_nablaG_wave                                &
+            )
+          int_G = int_G + int_G_wave
+          int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
+        ! else zero, assuming gf_singularities has been set up correctly, that is
+        ! low_freq for wavenumber = 0 and high_freq for wavenumber = inf
+        endif
+
+        call integral_of_prony_decomp_finite_depth        &
+          (collocation_points(I, :),                      &
+          vertices(faces(J, :), :),                       &
+          centers(J, :),                                  &
+          normals(J, :),                                  &
+          areas(J),                                       &
+          radiuses(J),                                    &
+          depth,                                          &
+          prony_decomposition,                            &
+          derivative_with_respect_to_first_variable,      &
+          int_G_wave, int_nablaG_wave                     &
+          )
+        int_G = int_G + int_G_wave
+        int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
+      endif  ! if Delhommeau's finite depth
+    endif  ! if finite depth
+
+    !!!!!!!!!!!!!!!!!!!
+    !  Add to matrix  !
+    !!!!!!!!!!!!!!!!!!!
+    S(I, J) = MINUS_ONE_OVER_FOURPI * int_G
+
+    if (size(K, 3) == 1) then  ! early_dot_product=True
+      if (adjoint_double_layer) then
+        K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(I, :), int_nablaG(:))
+      else
+        K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(J, :), int_nablaG(:))
+      endif
+    else
+      K(I, J, :) = MINUS_ONE_OVER_FOURPI * int_nablaG(:)
+    endif
+
+  end subroutine
+
+  ! =====================================================================
+
+  subroutine build_matrices( &
       nb_collocation_points, collocation_points, dot_product_normals, &
       nb_vertices, nb_faces, vertices, faces,                         &
       centers, normals, areas, radiuses,                              &
@@ -29,7 +309,6 @@ contains
       gf_singularities, adjoint_double_layer,                         &
       S, K)
 
-    ! Mesh data
     integer,                                              intent(in) :: nb_collocation_points
     real(kind=pre), dimension(nb_collocation_points, 3),  intent(in) :: collocation_points
     real(kind=pre), dimension(:, :),           intent(in) :: dot_product_normals
@@ -75,10 +354,6 @@ contains
     ! Local variables
     integer                         :: I, J
     real(kind=pre)                  :: sign_reflected_Rankine
-    real(kind=pre)                  :: int_G_rankine, diagonal_coef
-    real(kind=pre), dimension(3)    :: int_nablaG_rankine
-    complex(kind=pre)               :: int_G, int_G_wave
-    complex(kind=pre), dimension(3) :: int_nablaG, int_nablaG_wave
     logical :: derivative_with_respect_to_first_variable, finite_depth, finite_wavenumber
 
     derivative_with_respect_to_first_variable = adjoint_double_layer
@@ -97,221 +372,133 @@ contains
       sign_reflected_Rankine = +ONE
     endif
 
-    !$OMP PARALLEL DO SCHEDULE(DYNAMIC) &
-    !$OMP&  PRIVATE(J, I, int_G, int_nablaG, int_G_Rankine, int_nablaG_Rankine, diagonal_coef, &
-    !$OMP&          int_G_wave, int_nablaG_wave)
+    !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(J, I)
     do J = 1, nb_faces
       do I = 1, nb_collocation_points
-
-        int_G = CZERO
-        int_nablaG = CZERO
-
-        !!!!!!!!!!!!!!!!!!
-        !  Rankine part  !
-        !!!!!!!!!!!!!!!!!!
-        call integral_of_Rankine(                    &
-          collocation_points(I, :),                  &
-          vertices(faces(J, :), :),                  &
-          centers(J, :),                             &
-          normals(J, :),                             &
-          areas(J),                                  &
-          radiuses(J),                               &
-          derivative_with_respect_to_first_variable, &
-          int_G_Rankine, int_nablaG_Rankine          &
-          )
-
-        int_G = int_G + int_G_Rankine
-        int_nablaG(:) = int_nablaG(:) + int_nablaG_Rankine(:)
-        ! Not sign_reflected_Rankine!
-        ! The sign of this term does not change in the high frequency limit.
-
-        !!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        !  Reflected Rankine part  !
-        !!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        if (finite_depth .and. (finite_depth_method == LEGACY_FINITE_DEPTH)) then
-          ! Reproduce behavior of legacy finite depth method
-          call one_point_integral_of_reflected_Rankine( &
-            collocation_points(I, :),                   &
-            centers(J, :),                              &
-            areas(J),                                   &
-            derivative_with_respect_to_first_variable,  &
-            [-ONE, ZERO],                               &
-            int_G_Rankine,                              &
-            int_nablaG_Rankine                          &
-          )
-        else
-          call integral_of_reflected_Rankine(          &
-            collocation_points(I, :),                  &
-            vertices(faces(J, :), :),                  &
-            centers(J, :),                             &
-            normals(J, :),                             &
-            areas(J),                                  &
-            radiuses(J),                               &
+        call build_matrices_element( &
+            I, J, &
+            nb_collocation_points, collocation_points, dot_product_normals, &
+            nb_vertices, nb_faces, vertices, faces, &
+            centers, normals, areas, radiuses, &
+            nb_quad_points, quad_points, quad_weights, &
+            wavenumber, depth, &
+            tabulation_nb_integration_points, &
+            tabulation_grid_shape, &
+            tabulated_r_range, tabulated_z_range, &
+            tabulated_integrals, &
+            finite_depth_method, prony_decomposition, dispersion_roots, &
+            gf_singularities, adjoint_double_layer, &
+            sign_reflected_Rankine, &
             derivative_with_respect_to_first_variable, &
-            [-ONE, ZERO],                              &
-            int_G_Rankine,                             &
-            int_nablaG_Rankine                         &
-            )
-        endif
-        int_G = int_G + sign_reflected_Rankine * int_G_Rankine
-        int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+            finite_depth, finite_wavenumber, &
+            S, K)
+      end do
+    end do
+  end subroutine
 
-        if (gf_singularities == LOW_FREQ_WITH_RANKINE_PART) then
-          int_nablaG(3) = int_nablaG(3) + 2*wavenumber * int_G_Rankine
-        endif
 
-        if (.not. finite_depth) then
+  ! =====================================================================
 
-          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-          !  Infinite depth wave part  !
-          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-          if (finite_wavenumber) then
-            call integral_of_wave_part_infinite_depth                    &
-              (collocation_points(I, :),                                 &
-              centers(J, :), areas(J),                                   &
-              quad_points(J, :, :), quad_weights(J, :),                  &
-              wavenumber,                                                &
-              tabulation_nb_integration_points, tabulation_grid_shape,   &
-              tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-              gf_singularities,                                          &
-              derivative_with_respect_to_first_variable,                 &
-              int_G_wave, int_nablaG_wave                                &
-              )
-              int_G = int_G + int_G_wave
-              int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
-          ! else zero, assuming gf_singularities has been set up correctly, that is
-          ! low_freq for wavenumber = 0 and high_freq for wavenumber = inf
-          endif
+  subroutine build_matrices_no_omp( &
+      nb_collocation_points, collocation_points, dot_product_normals, &
+      nb_vertices, nb_faces, vertices, faces,                         &
+      centers, normals, areas, radiuses,                              &
+      nb_quad_points, quad_points, quad_weights,                      &
+      wavenumber, depth,                                              &
+      tabulation_nb_integration_points,                               &
+      tabulation_grid_shape,                                          &
+      tabulated_r_range, tabulated_z_range,                           &
+      tabulated_integrals,                                            &
+      finite_depth_method, prony_decomposition, dispersion_roots,     &
+      gf_singularities, adjoint_double_layer,                         &
+      S, K)
+    !f2py threadsafe
+    ! The above statement make f2py generate a wrapper with the GIL released.
 
-        else  ! Finite depth
+    integer,                                              intent(in) :: nb_collocation_points
+    real(kind=pre), dimension(nb_collocation_points, 3),  intent(in) :: collocation_points
+    real(kind=pre), dimension(:, :),           intent(in) :: dot_product_normals
+    ! If adjoint_double_layer:     size(dot_product_normals) == (nb_collocation_points, 3)
+    ! If not adjoint_double_layer: size(dot_product_normals) == (nb_faces, 3)
 
-          !!!!!!!!!!!!!!!!!!!!!!!!!!
-          !  FinGreen3D wave part  !
-          !!!!!!!!!!!!!!!!!!!!!!!!!!
-          if (finite_depth_method == FINGREEN3D_METHOD) then
-            call integral_of_wave_part_fingreen3D                 &
-              (collocation_points(I, :),                          &
-              quad_points(J, :, :), quad_weights(J, :),           &
-              wavenumber, depth, dispersion_roots,                &
-              derivative_with_respect_to_first_variable,          &
-              int_G_wave, int_nablaG_wave                         &
-              )
-              int_G = int_G + int_G_wave
-              int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
+    ! dot_product_normals might be identical to normals, especially when adjoint_double_layer is False.
+    ! The former is used when computing the dot product with the normal vector in the double layer or adjoint double layer operator
+    ! (D or K matrices). The latter is only used when computing the exact formula to integrate the Rankine part of the Green
+    ! function over a face.
+    ! Hence, both variables fulfill different role, and may or may not be identical.
 
-          else  ! Delhommeau's finite depth method
+    integer, intent(in)                                   :: nb_vertices, nb_faces
+    real(kind=pre), dimension(nb_vertices, 3), intent(in) :: vertices
+    integer,        dimension(nb_faces, 4),    intent(in) :: faces
+    real(kind=pre), dimension(nb_faces, 3),    intent(in) :: centers, normals
+    real(kind=pre), dimension(nb_faces),       intent(in) :: areas, radiuses
+    integer,                                                intent(in) :: nb_quad_points
+    real(kind=pre), dimension(nb_faces, nb_quad_points, 3), intent(in) :: quad_points
+    real(kind=pre), dimension(nb_faces, nb_quad_points),    intent(in) :: quad_weights
 
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            !  Supplementary Rankine parts in finite depth  !
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            ! 1. Reflection through sea bottom
-            call integral_of_reflected_Rankine(          &
-              collocation_points(I, :),                  &
-              vertices(faces(J, :), :),                  &
-              centers(J, :),                             &
-              normals(J, :),                             &
-              areas(J),                                  &
-              radiuses(J),                               &
-              derivative_with_respect_to_first_variable, &
-              [-ONE, -2*depth],                          &
-              int_G_Rankine, int_nablaG_Rankine          &
-              )
-            int_G = int_G + int_G_Rankine
-            int_nablaG(:) = int_nablaG(:) + int_nablaG_Rankine(:)
-            ! Not sign_reflected_Rankine!
-            ! The sign of this term does not change in the high frequency limit.
+    ! Solver parameters
+    integer,                                  intent(in) :: gf_singularities
+    logical,                                  intent(in) :: adjoint_double_layer
 
-            ! 2. Reflection through sea bottom and free surface
-            call one_point_integral_of_reflected_Rankine( &
-              collocation_points(I, :),                   &
-              centers(J, :),                              &
-              areas(J),                                   &
-              derivative_with_respect_to_first_variable,  &
-              [ONE, -2*depth],                            &
-              int_G_Rankine, int_nablaG_Rankine           &
-              )
-            int_G = int_G + sign_reflected_Rankine * int_G_Rankine
-            int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+    real(kind=pre),                           intent(in) :: wavenumber, depth
 
-            ! 3. Reflection through free surface and sea bottom
-            call one_point_integral_of_reflected_Rankine( &
-              collocation_points(I, :),                   &
-              centers(J, :),                              &
-              areas(J),                                   &
-              derivative_with_respect_to_first_variable,  &
-              [ONE, 2*depth],                             &
-              int_G_Rankine, int_nablaG_Rankine           &
-              )
-            int_G = int_G + sign_reflected_Rankine * int_G_Rankine
-            int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+    ! Tabulated values for the wave part of the Green function
+    integer,                                  intent(in) :: tabulation_grid_shape
+    integer,                                  intent(in) :: tabulation_nb_integration_points
+    real(kind=pre), dimension(:),             intent(in) :: tabulated_r_range
+    real(kind=pre), dimension(:),             intent(in) :: tabulated_z_range
+    real(kind=pre), dimension(:, :, :),       intent(in) :: tabulated_integrals
 
-            ! 4. Reflection through sea bottom and free surface and sea bottom again
-            call one_point_integral_of_reflected_rankine( &
-              collocation_points(I, :),                   &
-              centers(J, :),                              &
-              areas(J),                                   &
-              derivative_with_respect_to_first_variable,  &
-              [-ONE, -4*depth],                           &
-              int_G_Rankine, int_nablaG_Rankine           &
-              )
-            int_G = int_G + sign_reflected_Rankine * int_G_Rankine
-            int_nablaG(:) = int_nablaG(:) + sign_reflected_Rankine * int_nablaG_Rankine(:)
+    integer,                                  intent(in) :: finite_depth_method
+    real(kind=pre), dimension(:, :),          intent(in) :: prony_decomposition  ! For Delhommeau's finite depth, dummy otherwise
+    real(kind=pre), dimension(:),             intent(in) :: dispersion_roots  ! For FinGreen3D, dummy otherwise
 
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            !  Delhommeau's finite depth wave term  !
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            if (finite_wavenumber) then
-              call integral_of_wave_parts_finite_depth                     &
-                (collocation_points(I, :),                                 &
-                centers(J, :), areas(J),                                   &
-                quad_points(J, :, :), quad_weights(J, :),                  &
-                wavenumber, depth,                                         &
-                tabulation_nb_integration_points, tabulation_grid_shape,   &
-                tabulated_r_range, tabulated_z_range, tabulated_integrals, &
-                gf_singularities,                                          &
-                derivative_with_respect_to_first_variable,                 &
-                int_G_wave, int_nablaG_wave                                &
-                )
-              int_G = int_G + int_G_wave
-              int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
-            ! else zero, assuming gf_singularities has been set up correctly, that is
-            ! low_freq for wavenumber = 0 and high_freq for wavenumber = inf
-            endif
+    ! Outputs
+    complex(kind=pre), dimension(:, :),    intent(inout) :: S
+    complex(kind=pre), dimension(:, :, :), intent(inout) :: K
 
-            call integral_of_prony_decomp_finite_depth        &
-              (collocation_points(I, :),                      &
-              vertices(faces(J, :), :),                       &
-              centers(J, :),                                  &
-              normals(J, :),                                  &
-              areas(J),                                       &
-              radiuses(J),                                    &
-              depth,                                          &
-              prony_decomposition,                            &
-              derivative_with_respect_to_first_variable,      &
-              int_G_wave, int_nablaG_wave                     &
-              )
-            int_G = int_G + int_G_wave
-            int_nablaG(:) = int_nablaG(:) + int_nablaG_wave(:)
-          endif  ! if Delhommeau's finite depth
-        endif  ! if finite depth
+    ! Local variables
+    integer                         :: I, J
+    real(kind=pre)                  :: sign_reflected_Rankine
+    logical :: derivative_with_respect_to_first_variable, finite_depth, finite_wavenumber
 
-        !!!!!!!!!!!!!!!!!!!
-        !  Add to matrix  !
-        !!!!!!!!!!!!!!!!!!!
-        S(I, J) = MINUS_ONE_OVER_FOURPI * int_G
+    derivative_with_respect_to_first_variable = adjoint_double_layer
+    ! When computing the adjoint double layer operator (K), the derivative of the Green function is computed with respect to its
+    ! first variable (field point, often written x, or sometimes M in this code).
+    ! When computing the double layer operator (D), the derivative of the Green function is computed with respect to its second
+    ! variable (source point, often written xi, or sometimes M' in this code).
 
-        if (size(K, 3) == 1) then  ! early_dot_product=True
-          if (adjoint_double_layer) then
-            K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(I, :), int_nablaG(:))
-          else
-            K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(J, :), int_nablaG(:))
-          endif
-        else
-          K(I, J, :) = MINUS_ONE_OVER_FOURPI * int_nablaG(:)
-        endif
+    finite_depth = (.not. is_infinity(depth))
 
-      end do  ! loop on I
-    end do  ! parallelized loop on J
+    finite_wavenumber = ((ZERO < wavenumber) .and. (.not. is_infinity(wavenumber)))
+
+    if (gf_singularities == HIGH_FREQ) then
+      sign_reflected_Rankine = -ONE
+    else
+      sign_reflected_Rankine = +ONE
+    endif
+
+    do J = 1, nb_faces
+      do I = 1, nb_collocation_points
+        call build_matrices_element( &
+            I, J, &
+            nb_collocation_points, collocation_points, dot_product_normals, &
+            nb_vertices, nb_faces, vertices, faces, &
+            centers, normals, areas, radiuses, &
+            nb_quad_points, quad_points, quad_weights, &
+            wavenumber, depth, &
+            tabulation_nb_integration_points, &
+            tabulation_grid_shape, &
+            tabulated_r_range, tabulated_z_range, &
+            tabulated_integrals, &
+            finite_depth_method, prony_decomposition, dispersion_roots, &
+            gf_singularities, adjoint_double_layer, &
+            sign_reflected_Rankine, &
+            derivative_with_respect_to_first_variable, &
+            finite_depth, finite_wavenumber, &
+            S, K)
+      end do
+    end do
   end subroutine
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
