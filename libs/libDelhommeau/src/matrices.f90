@@ -1,4 +1,4 @@
-! Copyright (C) 2017-2024 Matthieu Ancellin
+! Copyright (C) 2017-2026 Matthieu Ancellin
 ! See LICENSE file at <https://github.com/capytaine/libDelhommeau>
 
 module matrices
@@ -6,13 +6,16 @@ module matrices
   use floating_point_precision, only: pre
   use constants
 
-  use green_Rankine
-  use green_wave
+  use green_Rankine, only: integral_of_Rankine, integral_of_reflected_Rankine, one_point_integral_of_reflected_Rankine
+  use green_wave, only: integral_of_wave_part_infinite_depth, integral_of_wave_part_fingreen3D, &
+                        integral_of_wave_parts_finite_depth, integral_of_prony_decomp_finite_depth
 
   implicit none
 
-contains
+  private
+  public :: build_matrices, build_matrices_slice_no_omp, add_diagonal_term, add_rankine_term_only
 
+contains
 
   ! =====================================================================
 
@@ -291,7 +294,7 @@ contains
       K(I, J, :) = MINUS_ONE_OVER_FOURPI * int_nablaG(:)
     endif
 
-  end subroutine
+  end subroutine build_matrices_element
 
   ! =====================================================================
 
@@ -394,12 +397,11 @@ contains
             S, K)
       end do
     end do
-  end subroutine
-
+  end subroutine build_matrices
 
   ! =====================================================================
 
-  subroutine build_matrices_no_omp( &
+  subroutine build_matrices_slice_no_omp( &
       nb_collocation_points, collocation_points, dot_product_normals, &
       nb_vertices, nb_faces, vertices, faces,                         &
       centers, normals, areas, radiuses,                              &
@@ -411,13 +413,15 @@ contains
       tabulated_integrals,                                            &
       finite_depth_method, prony_decomposition, dispersion_roots,     &
       gf_singularities, adjoint_double_layer,                         &
-      S, K)
+      I_range, J_range,                                               &
+      S, K                                                            &
+    )
     !f2py threadsafe
     ! The above statement make f2py generate a wrapper with the GIL released.
 
     integer,                                              intent(in) :: nb_collocation_points
     real(kind=pre), dimension(nb_collocation_points, 3),  intent(in) :: collocation_points
-    real(kind=pre), dimension(:, :),           intent(in) :: dot_product_normals
+    real(kind=pre), dimension(:, :),                      intent(in) :: dot_product_normals
     ! If adjoint_double_layer:     size(dot_product_normals) == (nb_collocation_points, 3)
     ! If not adjoint_double_layer: size(dot_product_normals) == (nb_faces, 3)
 
@@ -427,7 +431,7 @@ contains
     ! function over a face.
     ! Hence, both variables fulfill different role, and may or may not be identical.
 
-    integer, intent(in)                                   :: nb_vertices, nb_faces
+    integer,                                   intent(in) :: nb_vertices, nb_faces
     real(kind=pre), dimension(nb_vertices, 3), intent(in) :: vertices
     integer,        dimension(nb_faces, 4),    intent(in) :: faces
     real(kind=pre), dimension(nb_faces, 3),    intent(in) :: centers, normals
@@ -452,6 +456,8 @@ contains
     integer,                                  intent(in) :: finite_depth_method
     real(kind=pre), dimension(:, :),          intent(in) :: prony_decomposition  ! For Delhommeau's finite depth, dummy otherwise
     real(kind=pre), dimension(:),             intent(in) :: dispersion_roots  ! For FinGreen3D, dummy otherwise
+
+    integer, dimension(:),                    intent(in) :: i_range, j_range
 
     ! Outputs
     complex(kind=pre), dimension(:, :),    intent(inout) :: S
@@ -478,10 +484,10 @@ contains
       sign_reflected_Rankine = +ONE
     endif
 
-    do J = 1, nb_faces
-      do I = 1, nb_collocation_points
+    do J = 1, size(j_range)
+      do I = 1, size(i_range)
         call build_matrices_element( &
-            I, J, &
+            i_range(I), j_range(J), &
             nb_collocation_points, collocation_points, dot_product_normals, &
             nb_vertices, nb_faces, vertices, faces, &
             centers, normals, areas, radiuses, &
@@ -499,9 +505,9 @@ contains
             S, K)
       end do
     end do
-  end subroutine
+  end subroutine build_matrices_slice_no_omp
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ! =====================================================================
 
   subroutine add_diagonal_term(                               &
       centers, dot_product_normals, free_surface, K &
@@ -538,9 +544,9 @@ contains
       endif
     enddo
 
-  end subroutine
+  end subroutine add_diagonal_term
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ! =====================================================================
 
   subroutine add_rankine_term_only(                                   &
       nb_collocation_points, collocation_points, dot_product_normals, &
@@ -606,6 +612,8 @@ contains
         endif
       enddo
     enddo
-  end subroutine
+  end subroutine add_rankine_term_only
+
+  ! =====================================================================
 
 end module matrices
