@@ -21,7 +21,7 @@ contains
 
   subroutine build_matrices_element( &
       I, J, &
-      nb_collocation_points, collocation_points, dot_product_normals, &
+      nb_collocation_points, collocation_points, &
       nb_vertices, nb_faces, vertices, faces, &
       centers, normals, areas, radiuses, &
       nb_quad_points, quad_points, quad_weights, &
@@ -35,16 +35,14 @@ contains
       sign_reflected_Rankine, &
       derivative_with_respect_to_first_variable, &
       finite_depth, finite_wavenumber, &
-      S, K)
+      adjoint_double_layer_flag, &
+      int_G, int_nablaG)
 
     integer,                                              intent(in) :: I, J
 
     ! Mesh data
     integer,                                              intent(in) :: nb_collocation_points
     real(kind=pre), dimension(nb_collocation_points, 3),  intent(in) :: collocation_points
-    real(kind=pre), dimension(:, :),           intent(in) :: dot_product_normals
-    ! If adjoint_double_layer:     size(dot_product_normals) == (nb_collocation_points, 3)
-    ! If not adjoint_double_layer: size(dot_product_normals) == (nb_faces, 3)
 
     integer, intent(in)                                   :: nb_vertices, nb_faces
     real(kind=pre), dimension(nb_vertices, 3), intent(in) :: vertices
@@ -78,14 +76,15 @@ contains
     logical,                                  intent(in) :: finite_depth, finite_wavenumber
 
     ! Outputs
-    complex(kind=pre), dimension(:, :),    intent(inout) :: S
-    complex(kind=pre), dimension(:, :, :), intent(inout) :: K
+    logical,                                  intent(in) :: adjoint_double_layer_flag
+    complex(kind=pre),                        intent(out) :: int_G
+    complex(kind=pre), dimension(3),          intent(out) :: int_nablaG
 
     ! Local variables
     real(kind=pre)                  :: int_G_rankine
     real(kind=pre), dimension(3)    :: int_nablaG_rankine
-    complex(kind=pre)               :: int_G, int_G_wave
-    complex(kind=pre), dimension(3) :: int_nablaG, int_nablaG_wave
+    complex(kind=pre)               :: int_G_wave
+    complex(kind=pre), dimension(3) :: int_nablaG_wave
 
     int_G = CZERO
     int_nablaG = CZERO
@@ -279,21 +278,6 @@ contains
       endif  ! if Delhommeau's finite depth
     endif  ! if finite depth
 
-    !!!!!!!!!!!!!!!!!!!
-    !  Add to matrix  !
-    !!!!!!!!!!!!!!!!!!!
-    S(I, J) = MINUS_ONE_OVER_FOURPI * int_G
-
-    if (size(K, 3) == 1) then  ! early_dot_product=True
-      if (adjoint_double_layer) then
-        K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(I, :), int_nablaG(:))
-      else
-        K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(J, :), int_nablaG(:))
-      endif
-    else
-      K(I, J, :) = MINUS_ONE_OVER_FOURPI * int_nablaG(:)
-    endif
-
   end subroutine build_matrices_element
 
   ! =====================================================================
@@ -358,6 +342,8 @@ contains
     integer                         :: I, J
     real(kind=pre)                  :: sign_reflected_Rankine
     logical :: derivative_with_respect_to_first_variable, finite_depth, finite_wavenumber
+    complex(kind=pre)               :: int_G
+    complex(kind=pre), dimension(3) :: int_nablaG
 
     derivative_with_respect_to_first_variable = adjoint_double_layer
     ! When computing the adjoint double layer operator (K), the derivative of the Green function is computed with respect to its
@@ -375,12 +361,12 @@ contains
       sign_reflected_Rankine = +ONE
     endif
 
-    !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(J, I)
+        !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(J, I, int_G, int_nablaG)
     do J = 1, nb_faces
       do I = 1, nb_collocation_points
         call build_matrices_element( &
             I, J, &
-            nb_collocation_points, collocation_points, dot_product_normals, &
+            nb_collocation_points, collocation_points, &
             nb_vertices, nb_faces, vertices, faces, &
             centers, normals, areas, radiuses, &
             nb_quad_points, quad_points, quad_weights, &
@@ -394,7 +380,20 @@ contains
             sign_reflected_Rankine, &
             derivative_with_respect_to_first_variable, &
             finite_depth, finite_wavenumber, &
-            S, K)
+            adjoint_double_layer, &
+            int_G, int_nablaG)
+
+        S(I, J) = MINUS_ONE_OVER_FOURPI * int_G
+
+        if (size(K, 3) == 1) then  ! early_dot_product=True
+          if (adjoint_double_layer) then
+            K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(I, :), int_nablaG(:))
+          else
+            K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(J, :), int_nablaG(:))
+          endif
+        else
+          K(I, J, :) = MINUS_ONE_OVER_FOURPI * int_nablaG(:)
+        endif
       end do
     end do
   end subroutine build_matrices
@@ -413,7 +412,7 @@ contains
       tabulated_integrals,                                            &
       finite_depth_method, prony_decomposition, dispersion_roots,     &
       gf_singularities, adjoint_double_layer,                         &
-      I_range, J_range,                                               &
+      i_subset, j_subset,                                             &
       S, K                                                            &
     )
     !f2py threadsafe
@@ -457,7 +456,7 @@ contains
     real(kind=pre), dimension(:, :),          intent(in) :: prony_decomposition  ! For Delhommeau's finite depth, dummy otherwise
     real(kind=pre), dimension(:),             intent(in) :: dispersion_roots  ! For FinGreen3D, dummy otherwise
 
-    integer, dimension(:),                    intent(in) :: i_range, j_range
+    integer, dimension(:),                    intent(in) :: i_subset, j_subset
 
     ! Outputs
     complex(kind=pre), dimension(:, :),    intent(inout) :: S
@@ -467,6 +466,8 @@ contains
     integer                         :: I, J
     real(kind=pre)                  :: sign_reflected_Rankine
     logical :: derivative_with_respect_to_first_variable, finite_depth, finite_wavenumber
+    complex(kind=pre)               :: int_G
+    complex(kind=pre), dimension(3) :: int_nablaG
 
     derivative_with_respect_to_first_variable = adjoint_double_layer
     ! When computing the adjoint double layer operator (K), the derivative of the Green function is computed with respect to its
@@ -484,11 +485,11 @@ contains
       sign_reflected_Rankine = +ONE
     endif
 
-    do J = 1, size(j_range)
-      do I = 1, size(i_range)
+    do J = 1, size(j_subset)
+      do I = 1, size(i_subset)
         call build_matrices_element( &
-            i_range(I), j_range(J), &
-            nb_collocation_points, collocation_points, dot_product_normals, &
+            i_subset(I), j_subset(J), &
+            nb_collocation_points, collocation_points, &
             nb_vertices, nb_faces, vertices, faces, &
             centers, normals, areas, radiuses, &
             nb_quad_points, quad_points, quad_weights, &
@@ -502,14 +503,27 @@ contains
             sign_reflected_Rankine, &
             derivative_with_respect_to_first_variable, &
             finite_depth, finite_wavenumber, &
-            S, K)
+            adjoint_double_layer, &
+            int_G, int_nablaG)
+
+        S(I, J) = MINUS_ONE_OVER_FOURPI * int_G
+
+        if (size(K, 3) == 1) then  ! early_dot_product=True
+          if (adjoint_double_layer) then
+            K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(i_subset(I), :), int_nablaG(:))
+          else
+            K(I, J, 1) = MINUS_ONE_OVER_FOURPI * DOT_PRODUCT(dot_product_normals(j_subset(J), :), int_nablaG(:))
+          endif
+        else
+          K(I, J, :) = MINUS_ONE_OVER_FOURPI * int_nablaG(:)
+        endif
       end do
     end do
   end subroutine build_matrices_slice_no_omp
 
   ! =====================================================================
 
-  subroutine add_diagonal_term(                               &
+  subroutine add_diagonal_term(                     &
       centers, dot_product_normals, free_surface, K &
       )
 
