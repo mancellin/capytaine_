@@ -33,7 +33,37 @@ Capytaine: a Python-based linear potential flow BEM solver
 
       .. raw:: html
 
-          <video src="_static/front_page_animation.webm" loop autoplay muted></video>
+          <canvas id="boat-animation-canvas"></canvas>
+          <video class="hero-fallback-video" src="_static/front_page_animation.webm" loop autoplay muted playsinline hidden></video>
+
+          <script type="importmap">
+          {
+            "imports": {
+              "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+              "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+            }
+          }
+          </script>
+          <script type="module">
+            import { initHarmonicMeshViewer } from './_static/harmonic_mesh_viewer.js';
+            const canvas = document.getElementById('boat-animation-canvas');
+            const fallback = document.querySelector('.hero-fallback-video');
+            if (window.WebGLRenderingContext && canvas.getContext('webgl2')) {
+              initHarmonicMeshViewer(canvas, '_static/boat_animation_data.bin', {
+                onError: () => {
+                  canvas.hidden = true;
+                  fallback.hidden = false;
+                },
+              });
+            } else {
+              canvas.hidden = true;
+              fallback.hidden = false;
+            }
+          </script>
+          <script nomodule>
+            document.getElementById('boat-animation-canvas').hidden = true;
+            document.querySelector('.hero-fallback-video').hidden = false;
+          </script>
 
 .. container:: philosophy-grid
 

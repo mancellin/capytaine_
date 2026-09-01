@@ -197,15 +197,25 @@ div.hero-tagline {
 
 div.hero-illustration {
     flex: 1 1 280px;
-    display: flex;
-    justify-content: center;
 }
 
+div.hero-illustration canvas,
 div.hero-illustration video {
+    display: block;
     width: 100%;
     max-width: 500px;
     height: auto;
+    aspect-ratio: 4 / 3;
     border-radius: 10px;
+}
+
+/* display:block above is more specific than the browser's default
+   [hidden]{display:none}, so it would otherwise defeat `.hidden = true`
+   (used by the three.js/video fallback logic in index.rst) and leave an
+   empty box in place. */
+div.hero-illustration canvas[hidden],
+div.hero-illustration video[hidden] {
+    display: none;
 }
 
 /* -- CTA buttons ------------------------------------------------------ */
