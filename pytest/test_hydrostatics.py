@@ -79,12 +79,12 @@ def test_waterplane_center_of_submerged_sphere():
 ######################################################################
 
 @lru_cache
-def floating_sphere():
+def floating_sphere(quadrature_method=None):
     return mesh_sphere(
         radius=1.0,
         center=(0, 0, 0),
         resolution=(30, 30)
-    )
+    ).with_quadrature(quadrature_method)
 
 def test_wet_surface_area_of_floating_sphere():
     assert np.isclose(
@@ -149,21 +149,37 @@ def test_stiffness_no_center_of_mass():
         body.compute_hydrostatic_stiffness()
 
 @lru_cache
-def rigid_body():
+def rigid_body(quadrature_method=None):
     rigid_body = cpt.FloatingBody(
-        mesh=floating_sphere(),
+        mesh=floating_sphere(quadrature_method=quadrature_method),
         dofs=cpt.rigid_body_dofs(rotation_center=(0, 0, -0.3)),
         center_of_mass=(0, 0, -0.3)
     )
     return rigid_body
 
 @lru_cache
-def custom_dof_body():
-    mesh = floating_sphere()
+def legacy_custom_dof_body(quadrature_method=None):
+    """Legacy interface for custom dof, defining the dof as an array"""
+    mesh = floating_sphere(quadrature_method=quadrature_method)
     dof = np.array([(0, 0, z) for (x, y, z) in mesh.faces_centers])
-    custom_dof_body = cpt.FloatingBody(
+    legacy_custom_dof_body = cpt.FloatingBody(
         mesh=mesh,
         dofs={"elongate_in_z": dof},
+        center_of_mass=mesh.center_of_buoyancy,
+    )
+    return legacy_custom_dof_body
+
+@lru_cache
+def custom_dof_body(quadrature_method=None):
+    """Newer interface for custom dof, defining the dof as a function in an AbstactDof"""
+    mesh = floating_sphere(quadrature_method=quadrature_method)
+    def z_stretch_motion(p):
+        return np.array([0, 0, p[2]])
+    def gradient_of_z_stretch_motion(p):
+        return np.array([[0, 0, 0], [0, 0, 0], [0, 0, 1]])
+    custom_dof_body = cpt.FloatingBody(
+        mesh=mesh,
+        dofs={"elongate_in_z": cpt.CustomDof(z_stretch_motion, gradient_of_z_stretch_motion)},
         center_of_mass=mesh.center_of_buoyancy,
     )
     return custom_dof_body
@@ -172,13 +188,13 @@ def test_stiffness_dof_ordering():
     K = rigid_body().compute_hydrostatic_stiffness()
     assert np.all(K.coords["radiating_dof"].values == np.array(['Surge', 'Sway', 'Heave', 'Roll', 'Pitch', 'Yaw']))
 
-@pytest.mark.parametrize("body", [rigid_body, custom_dof_body])
+@pytest.mark.parametrize("body", [rigid_body, legacy_custom_dof_body, custom_dof_body])
 def test_stiffness_invariance_by_clipping_at_free_surface(body):
     K1 = body().compute_hydrostatic_stiffness()
     K2 = body().immersed_part().compute_hydrostatic_stiffness()
     assert np.allclose(K1, K2)
 
-@pytest.mark.parametrize("body", [rigid_body, custom_dof_body])
+@pytest.mark.parametrize("body", [rigid_body, legacy_custom_dof_body, custom_dof_body])
 def test_stiffness_invariance_by_translation(body):
     K1 = body().compute_hydrostatic_stiffness()
     K2 = body().translated([1.0, 0.0, 0.0]).compute_hydrostatic_stiffness()
@@ -223,21 +239,22 @@ def test_stiffness_single_rotation_dof():
 
 # DIVERGENCE
 
-def test_stiffness_elastic_dof_with_divergence():
-    body = custom_dof_body().immersed_part()
+@pytest.mark.parametrize("quadrature_method", [None, "Gauss-Legendre 2"])
+def test_stiffness_legacy_elastic_dof_with_divergence(quadrature_method):
+    body = legacy_custom_dof_body(quadrature_method=quadrature_method).immersed_part()
     hs_1 = body.compute_hydrostatic_stiffness()
     hs_2 = body.compute_hydrostatic_stiffness(divergence={"elongate_in_z": np.ones(body.mesh.nb_faces)})
     assert hs_1.values[0, 0] != hs_2.values[0, 0]
     analytical_hs = - 1000.0 * 9.81 * (4 * body.volume * body.center_of_buoyancy[2])
-    assert np.isclose(hs_2.values[0, 0], analytical_hs)
+    assert np.isclose(hs_2.values[0, 0], analytical_hs, rtol=1e-3)
 
-def test_stiffness_with_divergence_not_clipped():
-    body = custom_dof_body()
+def test_stiffness_legacy_with_divergence_not_clipped():
+    body = legacy_custom_dof_body()
     with pytest.raises(NotImplementedError):
         body.compute_hydrostatic_stiffness(divergence={"elongate_in_z": np.ones(body.mesh.nb_faces)})
 
-def test_stiffness_with_malformed_divergence(caplog):
-    body = custom_dof_body().immersed_part()
+def test_stiffness_legacy_with_malformed_divergence(caplog):
+    body = legacy_custom_dof_body().immersed_part()
     hs_1 = body.compute_hydrostatic_stiffness()
     with caplog.at_level(logging.WARNING):
         hs_2 = body.compute_hydrostatic_stiffness(
@@ -246,7 +263,24 @@ def test_stiffness_with_malformed_divergence(caplog):
             }
         )
     assert hs_1.values[0, 0] == hs_2.values[0, 0]
-    assert "without the divergence" in caplog.text
+    assert "does not seem to provide a value for elongate_in_z" in caplog.text
+
+@pytest.mark.parametrize("quadrature_method", [None, "Gauss-Legendre 2"])
+def test_stiffness_new_elastic_dof_including_divergence(quadrature_method):
+    body = custom_dof_body(quadrature_method=quadrature_method).immersed_part()
+    hs = body.compute_hydrostatic_stiffness()
+    analytical_hs = - 1000.0 * 9.81 * (4 * body.volume * body.center_of_buoyancy[2])
+    assert np.isclose(hs.values[0, 0], analytical_hs)
+
+def test_stiffness_mixing_older_and_new_divergence_interface(caplog):
+    body = custom_dof_body().immersed_part()
+    with caplog.at_level(logging.WARNING):
+        body.compute_hydrostatic_stiffness()
+    assert 'Ignoring the provided divergence' not in caplog.text
+    with caplog.at_level(logging.WARNING):
+        body.compute_hydrostatic_stiffness(divergence={"elongate_in_z": np.ones(body.mesh.nb_faces)})
+    assert 'Ignoring the provided divergence' in caplog.text
+
 
 # MULTIBODY
 

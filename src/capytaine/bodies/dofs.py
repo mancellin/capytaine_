@@ -28,13 +28,6 @@ class AbstractDof(ABC):
     def __repr__(self):
         return str(self)
 
-    @lru_cache
-    def evaluate_motion(self, mesh: AbstractMesh) -> np.ndarray:
-        if mesh.nb_faces == 0:
-            return np.empty((mesh.nb_faces, 3))
-        else:
-            return self.evaluate_motion_at_points(mesh.faces_centers)
-
     @abstractmethod
     def evaluate_motion_at_points(self, points: np.ndarray) -> np.ndarray:
         # points is an array of shape (..., 3)
@@ -42,12 +35,18 @@ class AbstractDof(ABC):
         ...
 
     @lru_cache
-    def evaluate_gradient_of_motion(self, mesh: AbstractMesh) -> np.ndarray:
-        # output is of shape (nb_points, 3, 3)
+    def evaluate_motion(self, mesh: AbstractMesh) -> np.ndarray:
         if mesh.nb_faces == 0:
-            return np.empty((mesh.nb_faces, 3, 3))
+            return np.empty((mesh.nb_faces, 3))
         else:
-            return self.evaluate_gradient_of_motion_at_points(mesh.faces_centers)
+            return self.evaluate_motion_at_points(mesh.faces_centers)
+
+    @lru_cache
+    def evaluate_motion_at_quad_points(self, mesh: AbstractMesh) -> np.ndarray:
+        if mesh.nb_faces == 0:
+            return np.empty(mesh.quadrature_points[0].shape)
+        else:
+            return self.evaluate_motion_at_points(mesh.quadrature_points[0])
 
     @abstractmethod
     def evaluate_gradient_of_motion_at_points(self, points: np.ndarray) -> np.ndarray:
@@ -58,6 +57,22 @@ class AbstractDof(ABC):
         # In other words, output[..., 0, :] is the gradient of the x-component of the motion on each face and
         # output[..., :, 0] is the derivative with respect to x of the motion vector on each face.
         ...
+
+    @lru_cache
+    def evaluate_gradient_of_motion(self, mesh: AbstractMesh) -> np.ndarray:
+        # output is of shape (nb_faces, 3, 3)
+        if mesh.nb_faces == 0:
+            return np.empty((mesh.nb_faces, 3, 3))
+        else:
+            return self.evaluate_gradient_of_motion_at_points(mesh.faces_centers)
+
+    @lru_cache
+    def evaluate_gradient_of_motion_at_quad_points(self, mesh: AbstractMesh) -> np.ndarray:
+        # output is of shape (nb_faces, nb_quad_points, 3, 3)
+        if mesh.nb_faces == 0:
+            return np.empty((*mesh.quadrature_points[1].shape, 3, 3))
+        else:
+            return self.evaluate_gradient_of_motion_at_points(mesh.quadrature_points[0])
 
 
 class TranslationDof(AbstractDof):
@@ -146,8 +161,58 @@ class DofOnSubmesh(AbstractDof):
         grad[self.faces, :, :] = self.dof.evaluate_gradient_of_motion_at_points(mesh.faces_centers[self.faces, :])
         return grad
 
+    @lru_cache
+    def evaluate_motion_at_quad_points(self, mesh: AbstractMesh) -> np.ndarray:
+        motion = np.zeros((*mesh.quadrature_points[1].shape, 3))
+        motion[self.faces, :, :] = self.dof.evaluate_motion_at_points(mesh.quadrature_points[0][self.faces, :, :])
+        return motion
+
+    @lru_cache
+    def evaluate_gradient_of_motion_at_quad_points(self, mesh: AbstractMesh) -> np.ndarray:
+        grad = np.zeros((*mesh.quadrature_points[1].shape, 3, 3))
+        grad[self.faces, :, :, :] = self.dof.evaluate_gradient_of_motion_at_points(mesh.quadrature_points[0][self.faces, :, :])
+        return grad
+
+
+class CustomDof(AbstractDof):
+    """Defines a fully custom dof with the same interface as the other AbstractDof.
+    To be used for elastic dofs.
+
+    Parameters
+    ----------
+    motion: Callable
+        A function returning the motion at a given location. Required.
+        The function is expected to take a 3-element vector as input (location in space)
+        and return a 3-element vector (displacement at this location).
+    gradient_of_motion: Callable, optional
+        A function returning the gradient (actually jacobian matrix) of the motion
+        The function is expected to take a 3-element vector as input (location in space)
+        and return a 3×3-matrix (jacobian of the displacement at this location).
+        If none is provided, zero value is used, which makes no difference for first order hydrodynamics,
+        but loses some accuracy for hydrostatics and second-order forces.
+    """
+    def __init__(self, motion, gradient_of_motion=None):
+        self.motion = motion
+        self.gradient_of_motion = gradient_of_motion
+
+    def evaluate_motion_at_points(self, points: np.ndarray) -> np.ndarray:
+        flat_points = points.reshape(-1, 3)
+        motion = np.zeros((flat_points.shape[0], 3))
+        for i, p in enumerate(flat_points):
+            motion[i, :] = self.motion(p)
+        return motion.reshape(*points.shape[:-1], 3)
+
+    def evaluate_gradient_of_motion_at_points(self, points: np.ndarray) -> np.ndarray:
+        flat_points = points.reshape(-1, 3)
+        grad = np.zeros((flat_points.shape[0], 3, 3))
+        if self.gradient_of_motion is not None:
+            for i, p in enumerate(flat_points):
+                grad[i, :, :] = self.gradient_of_motion(p)
+        return grad.reshape(*points.shape[:-1], 3, 3)
+
 
 def is_rigid_body_dof(dof):
+    # is_single_rigid_body_dof for now...
     return (
             isinstance(dof, TranslationDof)
             or isinstance(dof, RotationDof)
