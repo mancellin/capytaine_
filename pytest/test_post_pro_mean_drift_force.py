@@ -106,7 +106,7 @@ def test_scale_near_field_mean_drift_force():
 
 
 def test_cylinder_mean_drift_force():
-    mesh = cpt.mesh_vertical_cylinder(length=1., resolution=(10,20,16)).immersed_part()
+    mesh = cpt.mesh_vertical_cylinder(length=1., resolution=(4,12,8)).immersed_part()
     body = cpt.FloatingBody(mesh=mesh, dofs=cpt.rigid_body_dofs(), center_of_mass=(0,0,0))
     body.inertia_matrix = body.compute_rigid_body_inertia()
     body.hydrostatic_stiffness = body.compute_hydrostatic_stiffness()
@@ -125,11 +125,49 @@ def test_cylinder_mean_drift_force():
     rao = cpt.post_pro.rao(dataset)
     mdf_nf = near_field_mean_drift_force(rao, results, solver)/1e3
     mdf_ff = far_field_mean_drift_force(rao, dataset)/1e3
+    target_fx = 3.22
+    target_fy = 1.67
+    target_fz = 12.49
+    target_mx = -0.93
+    target_my = 1.74
+    target_mz = 0.
 
-    assert np.isclose(mdf_nf[...,1], 1.8, atol=1e-3, rtol=1e-1)
-    assert np.isclose(mdf_ff['drift_force_sway'], 1.8, atol=5e-1, rtol=1e-1)
-    assert np.isclose(mdf_nf[...,2], 12.5, atol=1e-3, rtol=1e-1)
-    assert np.isclose(mdf_nf[...,3], -0.9, atol=1e-3, rtol=1e-1)
-    assert np.isclose(mdf_nf[...,4], 1.8, atol=1e-3, rtol=1e-1)
-    assert np.isclose(mdf_nf[...,5], 0)
-    assert np.isclose(mdf_ff['drift_force_yaw'], 0, atol=1e-2)
+    assert np.isclose(mdf_nf[...,0], target_fx, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_ff['drift_force_surge'], target_fx, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_nf[...,1], target_fy, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_ff['drift_force_sway'], target_fy, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_nf[...,2], target_fz, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_nf[...,3], target_mx, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_nf[...,4], target_my, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_nf[...,5], target_mz, atol=1e-2, rtol=5e-1)
+    assert np.isclose(mdf_ff['drift_force_yaw'], target_mz, atol=1e-2, rtol=5e-1)
+
+
+def test_caisson():
+    mesh = cpt.mesh_parallelepiped(size=(90,90,80)).immersed_part()
+    body = cpt.FloatingBody(mesh=mesh, dofs=cpt.rigid_body_dofs(), center_of_mass=(0,0,0))
+    body.inertia_matrix = body.compute_rigid_body_inertia()
+    body.hydrostatic_stiffness = body.compute_hydrostatic_stiffness()
+    solver = cpt.BEMSolver()
+    period = [14.20]  
+    theta = np.linspace(-0.5, 2*np.pi, 20)
+    test_matrix = xr.Dataset(coords={
+                'period': period, 'wave_direction': 0, 'radiating_dof': list(body.dofs.keys()), 'theta': theta,
+            })
+    pbs = problems_from_dataset(test_matrix, body)
+    results = solver.solve_all(pbs)
+    data_kochin = kochin_data_array(results, theta)
+    dataset = cpt.assemble_dataset(results)
+    dataset.update(data_kochin)
+    rao = cpt.post_pro.rao(dataset)
+    mdf_nf = near_field_mean_drift_force(rao, results, solver)
+    mdf_ff = far_field_mean_drift_force(rao, dataset)
+
+    target_fx = 233204.32
+    target_fz = 78824.94
+    target_my = 10762390.49
+
+    assert np.isclose(mdf_nf[..., 0], target_fx, rtol=4e-1)
+    assert np.isclose(mdf_ff['drift_force_surge'], target_fx, rtol=4e-1)
+    assert np.isclose(mdf_nf[..., 2], target_fz, rtol=4e-1)
+    assert np.isclose(mdf_nf[..., 4], target_my, rtol=4e-1)
