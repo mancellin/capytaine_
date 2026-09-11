@@ -646,7 +646,7 @@ def assemble_dataset(results,
             LOG.warning('Bemio data does not include mesh data. mesh=True is ignored.')
         else:
             body = results[0].body  # Assumed to be all the same
-            dataset.coords['quadrature_method'] = body.mesh.quadrature_method
+            dataset.coords['quadrature_method'] = str(body.mesh.quadrature_method)
             dataset.coords["space_coordinate"] = xr.DataArray(["x", "y", "z"], dims=["space_coordinate"])
             # `as_array_of_faces` is only defined on plain `Mesh`, not on a
             # symmetric mesh (e.g. ReflectionSymmetricMesh/RotationSymmetricMesh)
