@@ -103,10 +103,52 @@ arguments to store more information in the dataset:
   (default: all `True`): control whether which of the representations of the
   wave frequency are stored in the dataset. At least one should be included, by
   default they all are.
-- :code:`mesh` (default: :code:`False`): add some information about the mesh in
-  the dataset (number of faces, quadrature method).
+- :code:`mesh` (default: :code:`False`): add the mesh and the dofs to the
+  dataset, as described below.
 - :code:`hydrostatics` (default: :code:`True`): if hydrostatics data are
   available in the :code:`FloatingBody`, they are added to the dataset.
+
+When :code:`mesh=True`, the dataset gains the quadrature method used on the
+mesh (:code:`quadrature_method`) and, for the hull (using the same
+:code:`hull_face` dimension as the pressure fields below, so the two can be
+related directly) and for the lid if any (using a :code:`lid_face`
+dimension):
+
+- :code:`mesh_vertices`/:code:`lid_mesh_vertices`: the vertices of each face,
+  as an array of shape :code:`(nb_faces, 3, 3)` if the mesh is made only of
+  triangles, or :code:`(nb_faces, 4, 3)` otherwise (with the last vertex
+  repeated for triangular faces).
+- :code:`mesh_faces_center`/:code:`lid_mesh_faces_center`: the center of each face.
+
+If the body also has dofs, the dataset additionally gains, with an
+:code:`influenced_dof` dimension matching the one used for e.g.
+:code:`added_mass` above (this dimension, rather than :code:`radiating_dof`,
+is used because it always covers every dof of the body and is present as
+soon as any result is available, whereas :code:`radiating_dof` may be a
+user-restricted subset, or absent entirely for diffraction-only results):
+
+- :code:`dof_motions`: for each dof, its motion evaluated at the center of
+  each hull face.
+- :code:`dof_gradient_of_motions`: for each dof defined with a
+  :class:`~capytaine.bodies.dofs.AbstractDof` (e.g. rigid body dofs or a
+  :class:`~capytaine.bodies.dofs.CustomDof` with a ``gradient_of_motion``),
+  the gradient (Jacobian) of its motion at the center of each hull face, with
+  the motion component indexed by :code:`space_coordinate` (as elsewhere) and
+  the derivative direction indexed by a new :code:`gradient` coordinate
+  (:code:`["dx", "dy", "dz"]`). For a legacy dof defined as a plain array (no
+  gradient available), this is filled with ``NaN``.
+
+.. note:: If the body's mesh takes advantage of a planar or rotational
+          symmetry (e.g. a :class:`~capytaine.meshes.symmetric_meshes.ReflectionSymmetricMesh`),
+          the symmetry itself is **not** preserved by :code:`mesh=True`, as of
+          the current version of Capytaine: :code:`mesh_vertices`,
+          :code:`mesh_faces_center` and :code:`dof_motions` always contain the
+          full, explicit list of faces (as if :meth:`~capytaine.meshes.AbstractMesh.merged`
+          had been called first), with nothing in the dataset indicating that
+          the original mesh was symmetric. This only affects the exported
+          mesh/dofs data itself; the hydrodynamic coefficients are unaffected
+          and are still computed by taking advantage of the symmetry
+          internally.
 
 In addition, :code:`fill_dataset` accepts a :code:`keep_details` keyword
 argument (default: :code:`False`), forwarded to :meth:`~capytaine.bem.solver.BEMSolver.solve_all`.
