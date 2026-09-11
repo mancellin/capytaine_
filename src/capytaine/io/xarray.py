@@ -35,6 +35,7 @@ from capytaine.bodies.multibodies import Multibody
 from capytaine.bem.problems_and_results import (
     LinearPotentialFlowProblem, DiffractionProblem, RadiationProblem,
     LinearPotentialFlowResult, _default_parameters)
+from capytaine.bem.airy_waves import airy_waves_pressure_dataarray
 from capytaine.post_pro.kochin import compute_kochin
 from capytaine.io.bemio import dataframe_from_bemio
 
@@ -256,7 +257,6 @@ def _dataset_from_dataframe(df: pd.DataFrame,
     da = _squeeze_dimensions(da, dimensions=optional_dims)
     return da
 
-
 def _rotation_center_data_array(body: AbstractBody) -> Optional[xr.DataArray]:
     rotation_centers = np.array([b.rotation_center for b in body.bodies])
     if not np.all(np.isnan(rotation_centers)):
@@ -471,6 +471,18 @@ VARIABLES_ATTRIBUTES = {
         "Froude_Krylov_force": {
             'long_name': "Froude Krylov force",
             },
+        "radiation_pressure": {
+            'long_name': "Radiation pressure",
+            'units': 'Pa',
+            },
+        "diffraction_pressure": {
+            'long_name': "Diffraction pressure",
+            'units': 'Pa',
+            },
+        "Froude_Krylov_pressure": {
+            'long_name': "Froude Krylov pressure",
+            'units': 'Pa',
+            },
         }
 
 def assemble_dataset(results,
@@ -668,6 +680,28 @@ def assemble_dataset(results,
                 computed_hydrostatics = computed_hydrostatics.assign_coords(influenced_dof=dataset.coords["influenced_dof"].to_index())
 
             dataset = xr.merge([dataset, computed_hydrostatics], compat="no_conflicts", join="outer")
+
+    if not bemio_import:
+        # Only keep results with a free surface, consistently with `records` above.
+        pressure_results = [r for r in results if r.free_surface == 0.0]
+    else:
+        pressure_results = []
+
+    if any(r.pressure is not None for r in pressure_results):
+        if any(isinstance(r.problem, DiffractionProblem) for r in pressure_results):
+            dataset["diffraction_pressure"] = _squeeze_dimensions(xr.merge(
+                    [r.pressure_dataarray() for r in pressure_results if isinstance(r.problem, DiffractionProblem)],
+                    compat="no_conflicts", join="outer"
+                    )['pressure'], dimensions=optional_dims)
+            dataset["Froude_Krylov_pressure"] = _squeeze_dimensions(xr.merge(
+                    [airy_waves_pressure_dataarray(r.problem) for r in pressure_results if isinstance(r.problem, DiffractionProblem)],
+                    compat="no_conflicts", join="outer"
+                    )['pressure'], dimensions=optional_dims)
+        if any(isinstance(r.problem, RadiationProblem) for r in pressure_results):
+            dataset["radiation_pressure"] = _squeeze_dimensions(xr.merge(
+                    [r.pressure_dataarray() for r in pressure_results if isinstance(r.problem, RadiationProblem)],
+                    compat="no_conflicts", join="outer"
+                    )['pressure'], dimensions=optional_dims + ['wave_direction'])
 
     for var in set(dataset) | set(dataset.coords):
         if var in VARIABLES_ATTRIBUTES:
