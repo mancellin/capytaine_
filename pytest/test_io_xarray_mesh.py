@@ -154,7 +154,7 @@ def test_mesh_export_with_symmetric_mesh(solver):
     dataset = solver.fill_dataset(test_matrix, sym_body, mesh=True, hydrostatics=False)
 
     assert dataset.sizes["hull_face"] == sym_mesh.nb_faces
-    assert dataset.coords["quadrature_method"].values.item() == sym_mesh.quadrature_method
+    assert dataset.coords["quadrature_method"].values.item() == str(sym_mesh.quadrature_method)
     np.testing.assert_allclose(dataset["mesh_faces_center"].values, sym_mesh.faces_centers)
     np.testing.assert_allclose(
             dataset["dof_motions"].sel(influenced_dof="Heave").values,
