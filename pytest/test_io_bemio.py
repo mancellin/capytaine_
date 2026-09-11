@@ -1,3 +1,16 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import os
 import shutil
 import pytest
@@ -12,8 +25,9 @@ def test_dataset_from_wamit_via_bemio():
     bemio_data = bemio.read(out_file)
 
     new_dataset = cpt.assemble_dataset(bemio_data)
-    assert (np.moveaxis(bemio_data.body[0].am.all, 2, 0) * bemio_data.body[0].rho == \
-        new_dataset['added_mass'].values).all()
+    ref_data = bemio_data.body[0].am.all * bemio_data.body[0].rho
+    ref_data = np.moveaxis(ref_data, 2, 0)  # (dof1, dof2, omega) -> (omega, dof1, dof2)
+    assert np.allclose(ref_data, new_dataset['added_mass'].values)
 
 
 def test_dataset_from_nemoh_via_bemio(tmp_path):

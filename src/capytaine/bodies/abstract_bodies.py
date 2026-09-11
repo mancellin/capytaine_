@@ -1,6 +1,18 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Abstract base class for floating bodies."""
-# Copyright (C) 2017-2025 Matthieu Ancellin
-# See LICENSE file at <https://github.com/capytaine/capytaine>
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -12,6 +24,7 @@ from capytaine.bodies.dofs import (
     add_dofs_labels_to_vector,
     add_dofs_labels_to_matrix,
 )
+from capytaine.bodies.visualization import show_3d
 
 
 class AbstractBody(ABC):
@@ -22,14 +35,14 @@ class AbstractBody(ABC):
 
     Subclasses must provide the following attributes (either as instance
     attributes set in __init__, or as properties/cached_properties):
-        name: str
-        mesh
-        lid_mesh
-        mesh_including_lid
-        hull_mask
-        dofs: dict
-        mass
-        center_of_mass
+    * name: str
+    * mesh
+    * lid_mesh
+    * mesh_including_lid
+    * hull_mask
+    * dofs: dict
+    * mass
+    * center_of_mass
     """
 
     name: str
@@ -66,9 +79,6 @@ class AbstractBody(ABC):
 
     @abstractmethod
     def integrate_pressure(self, pressure): ...
-
-    @abstractmethod
-    def immersed_part(self, *args, **kwargs) -> AbstractBody: ...
 
     @abstractmethod
     def minimal_computable_wavelength(self): ...
@@ -124,6 +134,9 @@ class AbstractBody(ABC):
     def clipped(self, *, origin, normal, name=None) -> AbstractBody: ...
 
     @abstractmethod
+    def immersed_part(self, free_surface=0.0, *, sea_botton=None, water_depth=None, name=None) -> AbstractBody: ...
+
+    @abstractmethod
     def copy(self, name=None) -> AbstractBody: ...
 
     # --- Display ---
@@ -136,3 +149,41 @@ class AbstractBody(ABC):
 
     def __repr__(self):
         return str(self)
+
+    def show(self, *, backend=None, **kwargs):
+        """Visualize the mesh using the specified backend.
+
+        Parameters
+        ----------
+        backend : str, optional
+            Visualization backend to use. Options are 'pyvista' or 'matplotlib'.
+            By default, try several until an installed one is found.
+        **kwargs
+            Additional keyword arguments passed to the visualization backend.
+            See :mod:`~capytaine.meshes.visualization`
+
+        Returns
+        -------
+        object
+            Visualization object returned by the backend (e.g., matplotlib figure).
+
+        Raises
+        ------
+        NotImplementedError
+            If the specified backend is not supported.
+        """
+        return show_3d(self, backend=backend, **kwargs)
+
+    def show_pyvista(self, **kwargs):
+        """
+        Equivalent to show(backend="pyvista").
+        See also :func:`~capytaine.bodies.visualization.show_pyvista`
+        """
+        return self.show(backend="pyvista", **kwargs)
+
+    def show_matplotlib(self, **kwargs):
+        """
+        Equivalent to show(backend="matplotlib").
+        See also :func:`~capytaine.bodies.visualization.show_matplotlib`
+        """
+        return self.show(backend="matplotlib", **kwargs)

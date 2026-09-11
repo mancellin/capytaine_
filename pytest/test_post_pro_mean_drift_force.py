@@ -1,3 +1,16 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Test related to the computation of mean drift force."""
 
 import numpy as np
@@ -14,18 +27,22 @@ def test_far_field_mean_drift_force():
     body.inertia_matrix = body.compute_rigid_body_inertia()
     body.hydrostatic_stiffness = body.compute_hydrostatic_stiffness()
     solver = cpt.BEMSolver()
-    wave_direction = 0
-    theta = np.linspace(0, 2*np.pi, 20)
+    wave_direction = [0, np.pi/4]
+    theta = np.linspace(-0.5, 2*np.pi, 20)
     k = np.array([0.92, 1.05])
     test_matrix = xr.Dataset(coords={
             'wavenumber': k, 'wave_direction': wave_direction, 'theta': theta, 'radiating_dof': list(body.dofs.keys())
         })
     dataset = solver.fill_dataset(test_matrix, body, hydrostatics=True)
     X = cpt.post_pro.rao(dataset)
-    factor = dataset['g']*dataset['rho']*r
     res = far_field_mean_drift_force(X, dataset)['drift_force_surge'].squeeze()
-    force_analytical = np.array([0.26, 0.7])
-    assert np.allclose(res/factor, force_analytical, atol=1e-1)
+    force_analytical = dataset['g'].values * dataset['rho'].values * r * np.array([0.26, 0.7])
+    assert np.allclose(res.sel(wave_direction_k=0, wave_direction_l=0), force_analytical, rtol=2e-1)
+    assert "wave_direction_k" in res.dims
+    assert "wave_direction_l" in res.dims
+    assert res.shape == (2, 2, 2)
+    assert np.allclose(res.isel(wave_direction_k=0, wave_direction_l=1).values,
+                       np.conj(res.isel(wave_direction_k=1, wave_direction_l=0).values))
 
 
 def test_scale_far_field_mean_drift_force():
@@ -38,7 +55,7 @@ def test_scale_far_field_mean_drift_force():
         body.hydrostatic_stiffness = body.compute_hydrostatic_stiffness()
         solver = cpt.BEMSolver()
         wave_direction = 0
-        theta = np.linspace(0, 2*np.pi, 20)
+        theta = np.linspace(-0.5, 2*np.pi, 20)
         k = np.linspace(0.1,1,5)/r
         test_matrix = xr.Dataset(coords={
             'wavenumber': k, 'wave_direction': wave_direction, 'theta': theta, 'radiating_dof': list(body.dofs.keys())

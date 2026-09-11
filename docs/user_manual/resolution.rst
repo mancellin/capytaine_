@@ -16,7 +16,7 @@ The settings of the solver can be customized by passing parameters at the initia
 
    which is equivalent to
 
-       solver = cpt.BEMSolver(engine=BasicMatrixEngine(green_function=...), method=...)
+       solver = cpt.BEMSolver(engine=DefaultMatrixEngine(green_function=...), method=...)
 
 Method
 ~~~~~~
@@ -49,7 +49,7 @@ Engine
 A class to build a interaction matrix, deriving from :class:`MatrixEngine <capytaine.bem.engines.MatrixEngine>`.
 A single one is built-in, but others with other features can be found in other packages.
 
-:class:`~capytaine.bem.engines.BasicMatrixEngine` (Default)
+:class:`~capytaine.bem.engines.DefaultMatrixEngine` (Default)
    Capytaine's default engine, that should be a good compromise between robustness, complexity and speed.
 
    The object can be initialized with the following options:
@@ -79,7 +79,7 @@ A single one is built-in, but others with other features can be found in other p
                            return np.linalg.inv(A) @ b
 
                    my_bem_solver = cpt.BEMSolver(
-                      engine=BasicMatrixEngine(linear_solver=my_linear_solver)
+                      engine=DefaultMatrixEngine(linear_solver=my_linear_solver)
                       )
 
            This option can be used for instance to apply a custom preconditioning to
@@ -224,7 +224,7 @@ Solving the problem
 Once the solver has been initialized, it can be used to solve problems with the
 :meth:`~capytaine.bem.solver.BEMSolver.solve` method::
 
-	result = solver.solve(problem, keep_details=False)
+    result = solver.solve(problem, keep_details=False)
 
 The optional argument :code:`keep_details` (default value: :code:`True`)
 controls whether the source and potential distributions should be saved in the
@@ -236,7 +236,7 @@ discarded to save space in memory.
 
 A list of problems can be solved at once in an optimal order with::
 
-	list_of_results = solver.solve_all(list_of_problems, keep_details=False)
+    list_of_results = solver.solve_all(list_of_problems, keep_details=False)
 
 where :meth:`~capytaine.bem.solver.BEMSolver.solve_all` accepts the same
 optional keyword arguments as :meth:`~capytaine.bem.solver.BEMSolver.solve`.
@@ -325,6 +325,7 @@ as Numpy, Scipy or Capytaine::
 
 
 .. _joblib-resolution:
+
 Batch resolution with joblib
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

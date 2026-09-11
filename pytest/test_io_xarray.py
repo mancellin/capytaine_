@@ -1,3 +1,16 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import pytest
 
 import numpy as np
@@ -153,6 +166,23 @@ def test_assemble_matrices_no_data():
     with pytest.raises(ValueError):
         cpt.assemble_matrices([])
 
+
+def test_assemble_matrices_frequency_order(sphere, solver):
+    # The matrices should be ordered like the input results, and not sorted by
+    # increasing frequency as in `assemble_dataset`.
+    # See https://github.com/capytaine/capytaine/issues/797
+    omegas = [1.5, 0.5, 1.0]  # deliberately not sorted
+    # Solve one by one to keep the results in the requested (unsorted) order.
+    res = [solver.solve(cpt.RadiationProblem(body=sphere, radiating_dof="Heave", omega=omega))
+           for omega in omegas]
+
+    A, B, _ = cpt.assemble_matrices(res)
+
+    expected_A = np.array([r.added_mass["Heave"] for r in res])
+    expected_B = np.array([r.radiation_damping["Heave"] for r in res])
+    np.testing.assert_allclose(A.squeeze(), expected_A)
+    np.testing.assert_allclose(B.squeeze(), expected_B)
+
 #######################################################################
 #                          Assemble dataset                           #
 #######################################################################
@@ -205,7 +235,7 @@ def test_fill_dataset(sphere, solver):
     sphere.add_all_rigid_body_dofs()
     test_matrix = xr.Dataset(coords={'omega': [1.0, 2.0, 3.0], 'wave_direction': [0, np.pi/2], 'radiating_dof': ['Heave']})
     dataset = solver.fill_dataset(test_matrix, [sphere])
-    assert dataset['added_mass'].data.shape == (3, 1, 6)
+    assert dataset['added_mass'].data.shape == (3, 6, 1)
     assert dataset['Froude_Krylov_force'].data.shape == (3, 2, 6)
 
 

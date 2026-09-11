@@ -1,3 +1,17 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import logging
 
 import numpy as np
@@ -113,8 +127,8 @@ def dataframe_from_bemio(bemio_obj, wavenumber, wavelength):
                 temp_dict['wave_direction'] = 0.0
                 temp_dict['influenced_dof'] = dofs
                 temp_dict['radiating_dof'] = radiating_dof
-                temp_dict['added_mass'] = bemio_obj.body[i].am.all[radiating_dof_idx, :, omega_idx].flatten()
-                temp_dict['radiation_damping'] = bemio_obj.body[i].rd.all[radiating_dof_idx, :, omega_idx].flatten()
+                temp_dict['added_mass'] = bemio_obj.body[i].am.all[:, radiating_dof_idx, omega_idx].flatten()
+                temp_dict['radiation_damping'] = bemio_obj.body[i].rd.all[:, radiating_dof_idx, omega_idx].flatten()
 
                 if from_wamit:
                     temp_dict['added_mass'] = temp_dict['added_mass'] * rho

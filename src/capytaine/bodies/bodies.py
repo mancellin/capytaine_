@@ -1,6 +1,18 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Floating bodies to be used in radiation-diffraction problems."""
-# Copyright (C) 2017-2024 Matthieu Ancellin
-# See LICENSE file at <https://github.com/capytaine/capytaine>
+
 from __future__ import annotations
 
 import logging
@@ -23,12 +35,12 @@ from capytaine.bodies.dofs import (
         rigid_body_dofs,
         )
 from capytaine.bodies.abstract_bodies import AbstractBody
-from capytaine.bodies.hydrostatics import _HydrostaticsMixin
+from capytaine.bodies.hydrostatics import _FloatingBodyHydrostaticsMixin
 
 LOG = logging.getLogger(__name__)
 
 
-class FloatingBody(_HydrostaticsMixin, AbstractBody):
+class FloatingBody(_FloatingBodyHydrostaticsMixin, AbstractBody):
     """A floating body described as a mesh and some degrees of freedom.
 
     The mesh structure is stored as a Mesh from capytaine.mesh.mesh or a
@@ -73,10 +85,8 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
     def __init__(self, mesh=None, dofs=None, *, lid_mesh=None, center_of_mass=None, mass=None, name=None):
         if mesh is None:
             self.mesh = Mesh(name="dummy_mesh")
-        elif isinstance(mesh, AbstractMesh):
-            self.mesh = mesh
         else:
-            raise TypeError("Unrecognized `mesh` object passed to the FloatingBody constructor.")
+            self.mesh = mesh
 
         if lid_mesh is None:
             self.lid_mesh = None
@@ -93,7 +103,11 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
             self.mesh_including_lid = self.mesh
             self.hull_mask = np.full((self.mesh.nb_faces,), True)
         else:
-            self.mesh_including_lid, masks = self.mesh.join_meshes(self.lid_mesh, return_masks=True)
+            self.mesh_including_lid, masks = self.mesh.join_meshes(
+                self.lid_mesh,
+                return_masks=True,
+                symmetry_warning_detail=" (hull mesh and lid mesh)"
+            )
             self.hull_mask = masks[0]
 
         if name is None and mesh is None:
@@ -130,8 +144,8 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
         Kinda deprecated, use cpt.load_mesh instead."""
         LOG.warning("Deprecation warning: The method FloatingBody.from_meshio(...) is deprecated. "
                     "Please prefer FloatingBody(mesh=cpt.load_mesh(...), ...)")
-        from capytaine.io.meshio import load_from_meshio
-        return FloatingBody(mesh=load_from_meshio(mesh, name), name=name)
+        from capytaine.meshes.io import load_mesh
+        return FloatingBody(mesh=load_mesh(mesh), name=name)
 
     @staticmethod
     def from_file(filename: str, file_format=None, name=None) -> 'FloatingBody':
@@ -139,10 +153,10 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
         Kinda deprecated, use cpt.load_mesh instead."""
         LOG.warning("Deprecation warning: The method FloatingBody.from_file(...) is deprecated. "
                     "Please prefer FloatingBody(mesh=cpt.load_mesh(...), ...)")
-        from capytaine.io.mesh_loaders import load_mesh
         if name is None:
             name = filename
-        mesh = load_mesh(filename, file_format, name=f"{name}_mesh")
+        from capytaine.meshes.io import load_mesh
+        mesh = load_mesh(filename, file_format)
         return FloatingBody(mesh, name=name)
 
     @property
@@ -173,7 +187,7 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
         if name is None:
             name = f"dof_{self.nb_dofs}_translation"
         if direction is None and normalize_name(name) in {"Surge", "Sway", "Heave"}:
-            self.dofs[name] = rigid_body_dofs()[normalize_name(name)]
+            self.dofs[name] = rigid_body_dofs(only=[normalize_name(name)])[normalize_name(name)]
         else:
             self.dofs[name] = TranslationDof(
                 direction=direction,
@@ -195,14 +209,17 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
         if name is None:
             name = f"dof_{self.nb_dofs}_rotation"
         if rotation_center is None:
-            for point_attr in ('rotation_center', 'center_of_mass'):
-                if hasattr(self, point_attr) and getattr(self, point_attr) is not None:
-                    rotation_center = getattr(self, point_attr)
-                    LOG.info(f"The rotation dof {name} has been initialized around the point: "
-                             f"{self.__short_str__()}.{point_attr} = {getattr(self, point_attr)}")
-                    break
+            if not np.any(np.isnan(self.rotation_center)):
+                # Already has a rotation center from another dof
+                rotation_center = self.rotation_center
+                LOG.warning(f"The rotation dof {name} has been initialized around the point: "
+                            f"{self.__short_str__()}.rotation_center = {self.rotation_center}")
+            elif self.center_of_mass is not None:
+                rotation_center = self.center_of_mass
+                LOG.warning(f"The rotation dof {name} has been initialized around the point: "
+                            f"{self.__short_str__()}.center_of_mass = {self.center_of_mass}")
         if direction is None and normalize_name(name) in {"Roll", "Pitch", "Yaw"}:
-            self.dofs[name] = rigid_body_dofs(rotation_center=rotation_center)[normalize_name(name)]
+            self.dofs[name] = rigid_body_dofs(only=[normalize_name(name)], rotation_center=rotation_center)[normalize_name(name)]
         else:
             self.dofs[name] = RotationDof(
                     rotation_center=rotation_center,
@@ -258,6 +275,29 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
                                  f"Expected shape: ({self.mesh.nb_faces}, 3)\n"
                                  f"  Actual shape: {dof.shape}")
 
+    @property
+    def rotation_center(self) -> np.array:
+        """Try to infer a rotation center by looking at the dofs.
+        Most bodies are rigid bodies with one and only one rotation center, but not all.
+        Only used for exporting data, as it might not be defined."""
+        centers = set()
+        for dof_name, dof in self.dofs.items():
+            if isinstance(dof, DofOnSubmesh) and hasattr(dof.dof, "rotation_center"):
+                centers.add(tuple(dof.dof.rotation_center))
+            if hasattr(dof, "rotation_center"):
+                centers.add(tuple(dof.rotation_center))
+        if len(centers) == 0:
+            return np.array([np.nan, np.nan, np.nan])
+        if len(centers) > 1:
+            LOG.warning(f"Body {self.name} has no uniquely defined rotation center. Returning an arbitrary one.\n"
+                        f"Exporting an arbitrary one among the found ones: {centers}.")
+        return np.array(next(iter(centers)))
+
+    @rotation_center.setter
+    def rotation_center(self, _):
+        raise AttributeError("Deprecated: cannot set the rotation center of a body directly.\n"
+                             "Set it in the definition of the degrees of freedom instead, e.g. "
+                             "`body = cpt.FloatingBody(..., dofs=cpt.rigid_body_dofs(rotation_center=c))`.")
 
     ###################
     # Transformations #
@@ -344,8 +384,6 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
             center_of_mass=mirror(self.center_of_mass) if self.center_of_mass is not None else None,
             mass=self.mass,
             )
-        if hasattr(self, 'rotation_center'):
-            mirrored_self.rotation_center = mirror(self.rotation_center)
         return mirrored_self
 
     def translated(self, shift, *, name=None) -> "FloatingBody":
@@ -367,8 +405,6 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
             mass=self.mass,
             name=name
             )
-        if hasattr(self, 'rotation_center'):
-            translated_self.rotation_center = self.rotation_center + shift
         return translated_self
 
     def rotated_with_matrix(self, R, *, name=None) -> "FloatingBody":
@@ -392,8 +428,6 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
             mass=self.mass,
             name=name
             )
-        if hasattr(self, 'rotation_center'):
-            rotated_self.rotation_center = self.rotation_center @ R.T
         return rotated_self
 
     def _apply_on_mesh(self, func, args, kwargs):
@@ -439,6 +473,7 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
             name=name
         )
 
+    @lru_cache
     def immersed_part(self, free_surface=0.0, *, sea_bottom=None, water_depth=None, name=None) -> "FloatingBody":
         clipped_mesh, clipped_lid_mesh, updated_dofs = self._apply_on_mesh(
             self.mesh.__class__.immersed_part,
@@ -512,38 +547,8 @@ class FloatingBody(_HydrostaticsMixin, AbstractBody):
             yield "center_of_mass", tuple(self.center_of_mass)
         yield "name", self.name
 
-    def show(self, *args, **kwargs):
-        return self.mesh.show(*args, **kwargs)
-
-    def show_pyvista(self, *args, **kwargs):
-        return self.mesh.show_pyvista(*args, **kwargs)
-
-    def show_matplotlib(self, *args, **kwargs):
-        return self.mesh.show_matplotlib(*args, **kwargs)
-
     def animate(self, motion, *args, **kwargs):
-        """Display a motion as a 3D animation.
-
-        Parameters
-        ==========
-        motion: dict or pd.Series or str
-            A dict or series mapping the name of the dofs to its amplitude.
-            If a single string is passed, it is assumed to be the name of a dof
-            and this dof with a unit amplitude will be displayed.
-        """
-        from capytaine.ui.vtk.animation import Animation
-        if isinstance(motion, str):
-            motion = {motion: 1.0}
-        elif isinstance(motion, xr.DataArray):
-            motion = {k: motion.sel(radiating_dof=k).data for k in motion.coords["radiating_dof"].data}
-
-        if any(dof not in self.dofs for dof in motion):
-            missing_dofs = set(motion.keys()) - set(self.dofs.keys())
-            raise ValueError(f"Trying to animate the body {self.name} using dof(s) {missing_dofs}, but no dof of this name is defined for {self.name}.")
-
-        animation = Animation(*args, **kwargs)
-        animation._add_actor(self.mesh.merged(), faces_motion=sum(motion[dof_name] * dof for dof_name, dof in self.dofs.items() if dof_name in motion))
-        return animation
+        raise NotImplementedError("Not yet re-implemented in version 3")
 
     #################################
     # Irregular frequencies removal #

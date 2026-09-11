@@ -1,6 +1,17 @@
+# Copyright 2026 Capytaine developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Implementation of block circulant matrices to be used for optimizing resolution with symmetries."""
-# Copyright (C) 2025 Capytaine developers
-# See LICENSE file at <https://github.com/capytaine/capytaine>
 
 import logging
 import numpy as np
@@ -29,7 +40,7 @@ def ending_dimensions_at_the_beginning(a):
 
 
 class BlockCirculantMatrix:
-    """Data-sparse representation of a block matrix of the following form
+    """Data-sparse representation of a block matrix of the following form::
 
         ( a  d  c  b )
         ( b  a  d  c )
@@ -150,7 +161,7 @@ class BlockCirculantMatrix:
 
 
 class NestedBlockCirculantMatrix:
-    """Data-sparse representation of a block matrix of the following form
+    """Data-sparse representation of a block matrix of the following form::
 
        ( a  b | e  d | c  f )
        ( b  a | f  c | d  e )
@@ -165,7 +176,7 @@ class NestedBlockCirculantMatrix:
     that is a block circulant matrix (here of size 3x3, but arbitrary outer sizes are supported),
     where diagonal blocks are 2x2 block circulant matrices and off-diagonal blocks have subblocks in common.
 
-    Reordering the lines and columns, this matrix is equivalent to the following shape
+    Reordering the lines and columns, this matrix is equivalent to the following shape::
 
        ( a  e  c | b  d  f )
        ( c  a  e | f  b  d )
@@ -177,7 +188,7 @@ class NestedBlockCirculantMatrix:
 
     that is a 2x2 block matrix of block circulant matrices, the block circulant matrices of the bottom row being the transpose of the block circulant matrices of the top row.
 
-    In the 2x2x2x2 limit case, the matrix is a nested block circulant matrix
+    In the 2x2x2x2 limit case, the matrix is a nested block circulant matrix::
 
        ( a  b | c  d )
        ( b  a | d  c )
@@ -185,7 +196,7 @@ class NestedBlockCirculantMatrix:
        ( c  d | a  b )
        ( d  c | b  a )
 
-    The 4x4x2x2 pattern reads
+    The 4x4x2x2 pattern reads::
 
        ( a  b | g  d | e  f | c  h )
        ( b  a | h  c | f  e | d  g )
@@ -223,12 +234,13 @@ class NestedBlockCirculantMatrix:
     def to_BlockCirculantMatrix(self):
         """Convert to a BlockCirculantMatrix with combined macro-blocks.
 
-        The NestedBlockCirculantMatrix with blocks [a, b, c, d, e, f, ...]
-        (where nb_blocks = 2*n) is converted to a BlockCirculantMatrix with n macro-blocks.
+        The NestedBlockCirculantMatrix with blocks ``[a, b, c, d, e, f, ...]``
+        (where ``nb_blocks = 2*n``) is converted to a BlockCirculantMatrix with n macro-blocks.
 
         Each macro-block i (for i in 0..n-1) is a 2x2 arrangement of the original blocks:
-        - For i=0: [[blocks[0], blocks[1]], [blocks[1], blocks[0]]]
-        - For i>0: [[blocks[2*i], blocks[2*n-2*i+1]], [blocks[2*i+1], blocks[2*n-2*i]]]
+
+        * For i=0: ``[[blocks[0], blocks[1]], [blocks[1], blocks[0]]]``
+        * For i>0: ``[[blocks[2*i], blocks[2*n-2*i+1]], [blocks[2*i+1], blocks[2*n-2*i]]]``
         """
         n = self.nb_blocks // 2
 
@@ -291,7 +303,7 @@ class NestedBlockCirculantMatrix:
 
 
 class BlockDiagonalMatrix:
-    """Data-sparse representation of a block matrix of the following form
+    """Data-sparse representation of a block matrix of the following form::
 
         ( a  0  0  0 )
         ( 0  b  0  0 )

@@ -93,15 +93,15 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
         ...
 
     def translated_x(self, dx: float, *, name=None) -> AbstractMesh:
-        """Return a new Mesh translated in the x-direction along `dx`."""
+        """Return a new mesh translated in the x-direction along `dx`."""
         return self.translated([dx, 0.0, 0.0], name=name)
 
     def translated_y(self, dy: float, *, name=None) -> AbstractMesh:
-        """Return a new Mesh translated in the y-direction along `dy`."""
+        """Return a new mesh translated in the y-direction along `dy`."""
         return self.translated([0.0, dy, 0.0], name=name)
 
     def translated_z(self, dz: float, *, name=None) -> AbstractMesh:
-        """Return a new Mesh translated in the z-direction along `dz`."""
+        """Return a new mesh translated in the z-direction along `dz`."""
         return self.translated([0.0, 0.0, dz], name=name)
 
     @abstractmethod
@@ -109,19 +109,19 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
         ...
 
     def rotated_x(self, angle: float, *, name=None) -> AbstractMesh:
-        """Return a new Mesh rotated around the x-axis using the provided rotation angle in radians"""
+        """Return a new mesh rotated around the x-axis using the provided rotation angle in radians"""
         c, s = np.cos(angle), np.sin(angle)
         R = np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
         return self.rotated_with_matrix(R, name=name)
 
     def rotated_y(self, angle: float, *, name=None) -> AbstractMesh:
-        """Return a new Mesh rotated around the y-axis using the provided rotation angle in radians"""
+        """Return a new mesh rotated around the y-axis using the provided rotation angle in radians"""
         c, s = np.cos(angle), np.sin(angle)
         R = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
         return self.rotated_with_matrix(R, name=name)
 
     def rotated_z(self, angle: float, *, name=None) -> AbstractMesh:
-        """Return a new Mesh rotated around the z-axis using the provided rotation angle in radians"""
+        """Return a new mesh rotated around the z-axis using the provided rotation angle in radians"""
         c, s = np.cos(angle), np.sin(angle)
         R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
         return self.rotated_with_matrix(R, name=name)
@@ -171,14 +171,14 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
 
         R = np.eye(3) + K + K @ K * ((1 - c) / (s ** 2))
         return self.rotated_with_matrix(R, name=name)
-    
-    def edges_faces_waterline(self): 
+
+    def edges_faces_waterline(self):
         """Extract the water line of the mesh.
 
         Returns
         -------
         (np.ndarray, np.ndarray)
-            A tuple (edges, faces) where the edges are the edges of the water line (pairs of vertex indices) 
+            A tuple (edges, faces) where the edges are the edges of the water line (pairs of vertex indices)
             and the faces are the corresponding faces of the mesh that contain these edges (quadruplet of vertex indices).
         """
         epsilon = 1e-6
@@ -193,22 +193,22 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
                 faces_waterline.append(self.faces[k,:])
 
         return np.array(edges_waterline), np.array(faces_waterline)
-    
+
     @property
     def nb_edges_waterline(self) -> int:
         """Number of edges in the water line."""
         return np.shape(self.edges_waterline)[0]
-    
+
     @cached_property
     def edges_waterline(self):
         """Return an array with the edges of the water line as pairs of vertex indices with shape (nb_edges_waterline,2)."""
         return self.edges_faces_waterline()[0]
-    
+
     @cached_property
     def faces_waterline(self):
         """Return an array with the faces of the water line as quadruplets of vertex indices with shape (nb_edges_waterline,4)."""
         return self.edges_faces_waterline()[1]
-    
+
     @cached_property
     def length_edges_waterline(self):
         """Return an array with the lengths of the edges of the water line with shape (nb_edges_waterline,)."""
@@ -217,7 +217,7 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
         vertices_right = self.vertices[edges[:,1],:]
         length_waterline = np.linalg.norm(vertices_left - vertices_right, ord=2, axis=1)
         return length_waterline
-    
+
     def waterline_integral(self, data):
         """Returns integral of given data along the water line.
 
@@ -229,7 +229,7 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
         Returns
         -------
         float
-            Value of the integral. 
+            Value of the integral.
         """
         return np.sum(self.length_edges_waterline*data)
 
@@ -237,7 +237,12 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
         ...
 
     @abstractmethod
-    def join_meshes(*meshes, return_masks=False, name=None) -> AbstractMesh:
+    def join_meshes(
+        *meshes,
+        return_masks=False,
+        name=None,
+        symmetry_warning_detail=""
+    ) -> AbstractMesh:
         ...
 
     def _common_metadata_keys(*meshes):
@@ -253,12 +258,12 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
 
         Parameters
         ----------
-        other : Mesh
+        other : AbstractMesh
             Another mesh to combine with this one.
 
         Returns
         -------
-        Mesh
+        AbstractMesh
             New mesh containing vertices and faces from both meshes.
         """
         if self.name is not None or other.name is not None:
@@ -291,7 +296,7 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
         ...
 
     @abstractmethod
-    def copy(self) -> AbstractMesh:
+    def copy(self, *, name, faces_metadata) -> AbstractMesh:
         ...
 
     def with_metadata(self, **new_metadata) -> AbstractMesh:
@@ -337,7 +342,7 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
 
         Returns
         -------
-        Mesh
+        AbstractMesh
             A new mesh containing the wedge sector with proper boundary faces.
 
         Examples
@@ -388,8 +393,8 @@ class AbstractMesh(SurfaceIntegralsMixin, ABC):
 
         Returns
         -------
-        Mesh
-            A new Mesh instance that has been clipped.
+        AbstractMesh
+            A new mesh instance that has been clipped.
         """
         water_depth = _get_water_depth(free_surface, water_depth, sea_bottom,
                                        default_water_depth=np.inf)

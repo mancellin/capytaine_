@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import logging
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import List, Union, Tuple, Dict, Optional, Literal
 
 import numpy as np
@@ -302,11 +302,13 @@ class Mesh(AbstractMesh):
         Parameters
         ----------
         list_faces : list of list of list of float
-            Each face is defined by a list of 3D coordinates. For example:
-            [
-                [[x1, y1, z1], [x2, y2, z2], [x3, y3, z3]],
-                [[x4, y4, z4], [x5, y5, z5], [x6, y6, z6]]
-            ]
+            Each face is defined by a list of 3D coordinates. For example::
+
+                [
+                    [[x1, y1, z1], [x2, y2, z2], [x3, y3, z3]],
+                    [[x4, y4, z4], [x5, y5, z5], [x6, y6, z6]]
+                ]
+
         faces_metadata: Optional[Dict[str, np.ndarray]]
         name: str, optional
             A name for the new mesh.
@@ -353,11 +355,13 @@ class Mesh(AbstractMesh):
         Returns
         -------
         list of list of list of float
-            Each face is defined by a list of 3D coordinates. For example:
-            [
-                [[x1, y1, z1], [x2, y2, z2], [x3, y3, z3]],
-                [[x4, y4, z4], [x5, y5, z5], [x6, y6, z6]]
-            ]
+            Each face is defined by a list of 3D coordinates. For example::
+
+                [
+                    [[x1, y1, z1], [x2, y2, z2], [x3, y3, z3]],
+                    [[x4, y4, z4], [x5, y5, z5], [x6, y6, z6]]
+                ]
+
         """
         list_faces = []
         for face in self._faces:
@@ -568,12 +572,17 @@ class Mesh(AbstractMesh):
             auto_check=False
         )
 
-    def join_meshes(*meshes: List["Mesh"], return_masks=False, name=None) -> "Mesh":
+    def join_meshes(
+        *meshes: List[AbstractMesh],
+        return_masks=False,
+        name=None,
+        symmetry_warning_detail=""
+    ) -> "Mesh":
         """Join several meshes and return a new Mesh instance.
 
         Parameters
         ----------
-        meshes: List[Mesh]
+        meshes: List[AbstractMesh]
             Meshes to be joined
         return_masks: bool, optional
             If True, additionally return a list of numpy masks establishing the
@@ -581,6 +590,9 @@ class Mesh(AbstractMesh):
             (Default: False)
         name: str, optional
             A name for the new object
+        symmetry_warning_detail: str, optional
+            Additional context to include in symmetry warning messages
+            (e.g., "hull mesh and lid mesh")
 
         Returns
         -------
@@ -596,6 +608,12 @@ class Mesh(AbstractMesh):
         """
         if not all(isinstance(m, AbstractMesh) for m in meshes):
             raise TypeError("Only AbstractMesh instances can be added together.")
+
+        # Check if symmetry will be lost when joining meshes
+        from capytaine.meshes.symmetric_meshes import ReflectionSymmetricMesh, RotationSymmetricMesh
+        symmetric_meshes = [isinstance(m, (ReflectionSymmetricMesh, RotationSymmetricMesh)) for m in meshes]
+        if any(symmetric_meshes) and not all(symmetric_meshes):
+            LOG.warning(f"Joining symmetric mesh with non-symmetric mesh{symmetry_warning_detail}. Symmetry will be discarded.")
 
         meshes = [m.merged() for m in meshes]  # Discard symmetries, no-op for non-symmetric Mesh
 
