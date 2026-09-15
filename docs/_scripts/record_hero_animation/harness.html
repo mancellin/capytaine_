@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  Minimal page used only by record.mjs to record the hero animation: a
+  canvas sized to exactly the output resolution, with none of the index.rst
+  page chrome (nav, hero text, fallback video) around it.
+
+  Loads the same viewer module, data file and import map as docs/index.rst
+  -- keep the "three" version below in sync with that file -- so the
+  recorded video is pixel-for-pixel what the live homepage renders.
+-->
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: #fff; }
+  canvas { display: block; width: 800px; height: 600px; }
+</style>
+<canvas id="boat-animation-canvas"></canvas>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+  import { initHarmonicMeshViewer } from '/docs/_static/harmonic_mesh_viewer.js';
+  const canvas = document.getElementById('boat-animation-canvas');
+  window.__viewer = initHarmonicMeshViewer(canvas, '/docs/_static/boat_animation_data.bin', {});
+</script>

@@ -34,7 +34,17 @@ Capytaine: a Python-based linear potential flow BEM solver
       .. raw:: html
 
           <canvas id="boat-animation-canvas"></canvas>
-          <video class="hero-fallback-video" src="_static/front_page_animation.webm" loop autoplay muted playsinline hidden></video>
+          <video class="hero-fallback-video" src="_static/front_page_animation.mp4" loop autoplay muted playsinline hidden></video>
+          <noscript>
+            <style>
+              /* No JS to run initHarmonicMeshViewer() or the fallback logic
+                 below, so force the swap via CSS instead: author styles
+                 always beat the UA stylesheet's `[hidden] { display: none }`,
+                 regardless of JS. */
+              #boat-animation-canvas { display: none; }
+              .hero-fallback-video { display: block; }
+            </style>
+          </noscript>
 
           <script type="importmap">
           {
@@ -44,25 +54,28 @@ Capytaine: a Python-based linear potential flow BEM solver
             }
           }
           </script>
-          <script type="module">
-            import { initHarmonicMeshViewer } from './_static/harmonic_mesh_viewer.js';
-            const canvas = document.getElementById('boat-animation-canvas');
-            const fallback = document.querySelector('.hero-fallback-video');
-            if (window.WebGLRenderingContext && canvas.getContext('webgl2')) {
-              initHarmonicMeshViewer(canvas, '_static/boat_animation_data.bin', {
-                onError: () => {
-                  canvas.hidden = true;
-                  fallback.hidden = false;
-                },
-              });
-            } else {
-              canvas.hidden = true;
-              fallback.hidden = false;
-            }
-          </script>
-          <script nomodule>
-            document.getElementById('boat-animation-canvas').hidden = true;
-            document.querySelector('.hero-fallback-video').hidden = false;
+          <script>
+            // A classic (non-module) script: browsers refuse to load
+            // `type="module"` scripts, and the modules they import, from a
+            // page opened directly as a file:// URL (no http server), so a
+            // static "import" there would silently fail before any fallback
+            // logic could run. Dynamic import() from a classic script lets
+            // us detect that case up front and skip straight to the video.
+            (function () {
+              const canvas = document.getElementById('boat-animation-canvas');
+              const fallback = document.querySelector('.hero-fallback-video');
+              function useFallback() {
+                canvas.hidden = true;
+                fallback.hidden = false;
+              }
+              if (location.protocol === 'file:' || !window.WebGLRenderingContext || !canvas.getContext('webgl2')) {
+                useFallback();
+                return;
+              }
+              import('./_static/harmonic_mesh_viewer.js')
+                .then((module) => module.initHarmonicMeshViewer(canvas, '_static/boat_animation_data.bin', { onError: useFallback }))
+                .catch(useFallback);
+            })();
           </script>
 
 .. container:: philosophy-grid
