@@ -382,8 +382,8 @@ class Delhommeau(AbstractGreenFunction):
         side of the normal of the face (usually the fluid), which adds n/2 with
         the normal of that face, and D includes +1/2. Faces on the free surface
         and on the sea bottom get 1 instead of 1/2, from the image of the
-        Rankine term (except faces on the free surface with
-        ``finite_depth_method="legacy"``, which are not supported and get 1/2).
+        Rankine term (faces on the free surface are not supported with
+        ``finite_depth_method="legacy"``).
 
         Parameters
         ----------
@@ -432,6 +432,10 @@ class Delhommeau(AbstractGreenFunction):
         )
 
         wavenumber = float(wavenumber)
+
+        if (water_depth < np.inf and self.finite_depth_method == 'legacy'
+                and np.any(abs(mesh2.faces_centers[:, 2] - free_surface) < 1e-6)):
+            raise NotImplementedError("Panels on the free surface are not supported with finite_depth_method='legacy'.")
 
         # Overrides gf_singularities setting in some specific cases, else use the class one.
         if water_depth < np.inf and self.finite_depth_method == 'legacy' and not self.gf_singularities == 'low_freq':

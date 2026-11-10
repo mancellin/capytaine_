@@ -66,6 +66,8 @@ CONTAINS
 
   SUBROUTINE LISC(omega2_h_over_g, wavenumber, nexp, prony_decomposition)
     ! Compute Prony decomposition and test its accuracty
+    ! Not supported at infinite frequency (Delhommeau.find_best_exponential_decomposition() raises NotImplementedError
+    ! for kh > 1e5).
 
     INTEGER, PARAMETER :: NEXR = 31  ! Max number of terms?
     INTEGER, PARAMETER :: NMAX = 4*(31-1)  ! Max number of values for approximation

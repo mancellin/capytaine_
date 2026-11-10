@@ -90,7 +90,9 @@ CONTAINS
     if ((abs(r) < 1e-10) .and. (abs(z) < 1e-10)) then
       if (gf_singularities == HIGH_FREQ) then
         print*, "WARNING: support of free surface panels not implemented for the high_freq Green function"
-        ! Delhommeau().evaluate() should not permit this to happen.
+        ! Delhommeau().evaluate() should not permit this to happen: it switches to low_freq when there are free surface
+        ! panels at finite frequency. LiangWuNoblesseGF().evaluate() only uses high_freq at infinite frequency, where this
+        ! function is not called (see integral_of_wave_part_infinite_frequency).
       endif
 
       ! Interaction of a panel on the free surface with itself
@@ -267,6 +269,8 @@ CONTAINS
     dzdx3 = wavenumber
 
     IF (tabulation_grid_shape == LIANG_WU_NOBLESSE) THEN
+      ! Only supported in infinite depth, that is not when called from integral_of_wave_parts_finite_depth
+      ! (LiangWuNoblesseGF.evaluate() raises NotImplementedError in finite depth or without free surface).
 #ifdef LIANGWUNOBLESSE_OPTIONAL_DEPENDENCY
         call HavelockGF(r, z, G_, dGdr_)
         G = - G_
@@ -504,6 +508,9 @@ CONTAINS
       derivative_with_respect_to_first_variable,                 &
       int_G, int_nablaG                                          &
       )
+    ! The Prony decomposition is computed beforehand by the Python code, either in Python
+    ! (not supported for kh <= 0.1, NotImplementedError) or with the Fortran subroutine LISC
+    ! (not supported at infinite frequency, NotImplementedError), see Delhommeau.find_best_exponential_decomposition().
 
     ! Inputs
     real(kind=pre), dimension(3),             intent(in) :: x
@@ -609,6 +616,16 @@ CONTAINS
     derivative_with_respect_to_first_variable,                 &
     int_G, int_nablaG                                          &
     )
+    ! Wave part of the finite depth Green function of FinGreen3D, integrated with the quadrature points of the face.
+    ! The direct Rankine term and its image through the free surface are computed separately (see matrices.f90),
+    ! but the image through the sea bottom is included in this wave part.
+    ! Unsupported combinations (FinGreen3D.evaluate() raises NotImplementedError):
+    ! * infinite depth (the method is only defined in finite depth), zero or infinite wavenumber;
+    ! * faces on the sea bottom: the singularity of the image through the sea bottom is only evaluated at the quadrature
+    !   points. The jump of its derivative is missing (coefficient ½ instead of 1 on the diagonal of the double layer
+    !   operators), and the result is singular when a quadrature point is the collocation point (one-point quadrature);
+    ! * faces on the free surface with a one-point quadrature: the wave part is singular at the quadrature point,
+    !   which is then the collocation point.
 
     real(kind=pre), dimension(3),          intent(in) :: x
     real(kind=pre), dimension(:),          intent(in) :: face_quadrature_weights

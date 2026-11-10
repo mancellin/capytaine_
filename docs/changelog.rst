@@ -64,8 +64,10 @@ Bug fixes
   The term was also missing when computing the value at field points without a free surface. (:pull:`951`)
   Faces on the sea bottom (with the default finite depth Green function) now get the coefficient 1, like faces on the free surface, instead of 1/2.
   A lid slightly below the free surface (closer than ``5e-5`` times the radius of its faces) now also gets the coefficient 1 instead of 1/2, such that the coefficient varies continuously with the depth of the lid.
-  Faces on the free surface are not supported by the legacy finite depth method (``finite_depth_method="legacy"``): they now get the coefficient 1/2 instead of 1.
+  Faces on the free surface are not supported by the legacy finite depth method (``finite_depth_method="legacy"``): they now raise a ``NotImplementedError``.
   Non-planar quadrilateral faces (which are not officially supported) now get a coefficient slightly different from 1/2, consistent with the limit from the side of the normal.
+
+* :class:`~capytaine.green_functions.hams.FinGreen3D` (and :class:`~capytaine.green_functions.hams.HAMS_GF` in finite depth) now raises a ``NotImplementedError`` for faces on the sea bottom, which got the coefficient 1/2 instead of 1 (or a NaN with the default one-point quadrature), and for faces on the free surface with a one-point quadrature, which gave a NaN.
 
 Internals
 ~~~~~~~~~

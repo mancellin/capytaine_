@@ -155,7 +155,8 @@ contains
             int_nablaG_Rankine                          &
           )
           ! The one-point approximation has no jump term: faces on the free surface are not supported
-          ! (they get the coefficient ½ of the direct Rankine term instead of 1).
+          ! (they would get the coefficient ½ of the direct Rankine term instead of 1;
+          ! Delhommeau.evaluate() raises NotImplementedError).
         else
           call integral_of_reflected_Rankine(          &
             collocation_points(I, :),                  &

@@ -144,6 +144,16 @@ class FinGreen3D(AbstractGreenFunction):
         if wavenumber == 0.0 or wavenumber == np.inf:
             raise NotImplementedError("FinGreen3D is only implemented for non-zero and non-infinite frequencies")
 
+        if np.any(abs(mesh2.faces_centers[:, 2] + water_depth) < 1e-6):
+            raise NotImplementedError("FinGreen3D does not support panels on the sea bottom.")
+
+        if (np.any(abs(mesh2.faces_centers[:, 2] - free_surface) < 1e-6)
+                and mesh2.quadrature_points[0].shape[1] == 1):
+            raise NotImplementedError(
+                "FinGreen3D does not support panels on the free surface with a one-point quadrature "
+                "(the wave term is singular at the face center). Use e.g. mesh.with_quadrature('Gauss-Legendre 2')."
+            )
+
         dispersion_relation_roots = self.compute_dispersion_relation_roots(
             self.nb_dispersion_roots,
             wavenumber,
